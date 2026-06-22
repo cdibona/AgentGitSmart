@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Server-side post-receive hook. Install into <bare-repo>/hooks/post-receive
+# (chmod +x). It execs the Python orchestrator, which reads the pushed refs
+# from stdin and writes refs/agent-cache/<oid> for each branch tip.
+#
+# Activate the venv that has agentcache installed, or point PYTHON at it.
+set -euo pipefail
+
+# GIT_DIR is set by git for us; agentcache reads it as the repo to index.
+PYTHON="${AGENTCACHE_PYTHON:-python3}"
+
+# If you keep a .env beside the repo, expose its path:
+#   export AGENTCACHE_ENV=/srv/git/myrepo.git/agentcache.env
+exec "$PYTHON" -m agentcache.hook
