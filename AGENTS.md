@@ -1,5 +1,22 @@
 # Agent Instructions — PackCache / agentcache
 
+## agentcache artifact (if you're in a PackCache-enhanced repo)
+
+> **You are reading the tracked stub.** If this is a PackCache-enabled repo
+> and the service is running, you can get richer, commit-specific instructions
+> without any clone:
+>
+> ```bash
+> curl <AGENTCACHE_SERVICE_URL>/agents.md
+> ```
+>
+> The full instructions are stored as an artifact in the orphaned cache commit
+> and served by the agentcache query service.  The tracked AGENTS.md is just
+> a pointer; the artifact has the actual service URL, exact commit, and
+> copy-paste shell snippets.
+
+---
+
 > **This file is for AI agents working on the PackCache codebase.**
 > If you are an agent working on a *different* repo that happens to use
 > agentcache as its server-side cache, see that repo's own `AGENTS.md`

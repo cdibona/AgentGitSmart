@@ -1,5 +1,21 @@
 # Agent Instructions — `<REPO_NAME>`
 
+## Getting full agent instructions (no clone needed)
+
+If the agentcache service is running, you can get commit-specific instructions
+in a single HTTP request — no git clone required:
+
+```bash
+curl <AGENTCACHE_SERVICE_URL>/agents.md
+```
+
+This returns the same document you are reading, but rendered with the actual
+service URL, the current HEAD commit SHA, and copy-paste-ready shell commands.
+The full instructions are stored in the orphaned cache commit — not in the
+tracked file tree — so this works before you have cloned anything.
+
+---
+
 <!-- agentcache-config
 service_url: <AGENTCACHE_SERVICE_URL>
 bundle_cdn:  <BUNDLE_CDN_URL_OR_OMIT>

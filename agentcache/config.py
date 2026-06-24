@@ -39,6 +39,9 @@ class AgentCacheConfig:
     # Query service bind.
     service_host: str = "127.0.0.1"
     service_port: int = 8765
+    # URL this service is reachable at (used to self-reference in agents.md artifact).
+    # Set AGENTCACHE_SERVICE_URL in the environment; leave blank to omit from artifact.
+    service_url: str = ""
 
     @classmethod
     def from_env(cls, env_path: Optional[str] = None, *, repo_dir: Optional[str] = None) -> "AgentCacheConfig":
@@ -61,4 +64,5 @@ class AgentCacheConfig:
             bot_email=os.environ.get("AGENTCACHE_BOT_EMAIL", "agentcache@localhost"),
             service_host=os.environ.get("AGENTCACHE_SERVICE_HOST", "127.0.0.1"),
             service_port=int(os.environ.get("AGENTCACHE_SERVICE_PORT", "8765")),
+            service_url=os.environ.get("AGENTCACHE_SERVICE_URL", ""),
         )

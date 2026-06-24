@@ -112,6 +112,26 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
             total_bytes=sum(r["size"] or 0 for r in resolved),
         )
 
+    @app.get("/cache/<commit>/agents.md")
+    def agents_md(commit: str):
+        try:
+            raw = cache_writer.read_artifact(repo, commit, "agents.md", ref_prefix=cfg.ref_prefix)
+        except KeyError as exc:
+            return jsonify(error=str(exc)), 404
+        return app.response_class(raw, mimetype="text/markdown; charset=utf-8")
+
+    @app.get("/agents.md")
+    def agents_md_latest():
+        commits = cache_writer.list_caches(repo, cfg.ref_prefix)
+        if not commits:
+            return jsonify(error="no caches exist yet; run the post-receive hook to generate one"), 404
+        latest = commits[-1]
+        try:
+            raw = cache_writer.read_artifact(repo, latest, "agents.md", ref_prefix=cfg.ref_prefix)
+        except KeyError as exc:
+            return jsonify(error=str(exc)), 404
+        return app.response_class(raw, mimetype="text/markdown; charset=utf-8")
+
     return app
 
 
