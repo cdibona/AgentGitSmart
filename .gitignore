@@ -12,3 +12,4 @@ benchmark/results/
 
 # environment
 .env
+testharness/data/

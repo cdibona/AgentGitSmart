@@ -1,0 +1,24 @@
+/* Custom styles that extend Tailwind */
+
+.bg-gray-750 { background-color: #2d3748; }
+
+/* Terminal log */
+#log-container {
+  scrollbar-width: thin;
+  scrollbar-color: #4a5568 #1a202c;
+}
+#log-container::-webkit-scrollbar { width: 6px; }
+#log-container::-webkit-scrollbar-track { background: #1a202c; }
+#log-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 3px; }
+
+/* Approach color chips */
+.chip-naive       { background: #1e3a5f; color: #60a5fa; }
+.chip-blobless    { background: #3d1f02; color: #fb923c; }
+.chip-agentcache  { background: #052e16; color: #4ade80; }
+
+/* Subtle row hover for tables */
+tr:hover .hover-show { opacity: 1; }
+.hover-show { opacity: 0; transition: opacity 0.15s; }
+
+/* Chart.js canvas */
+canvas { max-height: 200px; }

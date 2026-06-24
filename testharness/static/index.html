@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PackCache Test Harness</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="h-full text-gray-100" x-data="app()" x-init="init()">
+
+  <!-- ── Top nav ─────────────────────────────────────────────────── -->
+  <header class="fixed top-0 w-full bg-gray-900 border-b border-gray-800 z-50 px-5 h-12 flex items-center gap-6">
+    <span class="font-bold text-indigo-400 tracking-tight">PackCache Harness</span>
+
+    <nav class="flex gap-4 text-sm">
+      <button @click="view='dashboard'" :class="view==='dashboard'?'text-white':'text-gray-400 hover:text-white'">Dashboard</button>
+      <button @click="view='newtest'"   :class="view==='newtest'  ?'text-white':'text-gray-400 hover:text-white'">New Test</button>
+      <button @click="view='history'"  :class="view==='history'  ?'text-white':'text-gray-400 hover:text-white'">History</button>
+    </nav>
+
+    <!-- Status dots -->
+    <div class="ml-auto flex items-center gap-4 text-xs text-gray-400">
+      <span class="flex items-center gap-1">
+        <span :class="status.git_daemon ? 'bg-green-500':'bg-red-500'" class="w-2 h-2 rounded-full"></span>
+        git daemon :<span x-text="status.git_daemon_port" class="text-gray-300"></span>
+      </span>
+      <span class="flex items-center gap-1">
+        <span :class="status.proxy ? 'bg-green-500':'bg-red-500'" class="w-2 h-2 rounded-full"></span>
+        proxy :<span x-text="status.proxy_port" class="text-gray-300"></span>
+      </span>
+      <span class="flex items-center gap-1">
+        <span :class="status.agentcache_service ? 'bg-green-500':'bg-yellow-500'" class="w-2 h-2 rounded-full"></span>
+        agentcache svc
+      </span>
+    </div>
+  </header>
+
+  <!-- ── Main layout ─────────────────────────────────────────────── -->
+  <div class="flex h-full pt-12">
+
+    <!-- Sidebar -->
+    <aside class="w-56 shrink-0 bg-gray-900 border-r border-gray-800 overflow-y-auto pt-4">
+      <div class="px-3 mb-3">
+        <button @click="view='newtest'"
+          class="w-full py-2 px-3 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-semibold transition">
+          + New Test
+        </button>
+      </div>
+
+      <p class="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-4 mb-1">Repos</p>
+      <template x-for="r in status.repos" :key="r">
+        <div class="px-3 py-1 text-xs text-gray-300 truncate" x-text="r"></div>
+      </template>
+      <div x-show="status.repos.length===0" class="px-3 py-1 text-xs text-gray-600 italic">
+        No repos — run setup_repo.sh
+      </div>
+
+      <p class="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-5 mb-1">Recent Runs</p>
+      <template x-for="run in recentRuns" :key="run.run_id">
+        <button @click="openRun(run.run_id)"
+          class="w-full text-left px-3 py-2 hover:bg-gray-800 transition border-b border-gray-800">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-mono text-indigo-300" x-text="run.run_id"></span>
+            <span :class="statusColor(run.status)" class="text-xs rounded px-1" x-text="run.status"></span>
+          </div>
+          <div class="text-xs text-gray-400 truncate mt-0.5" x-text="run.repo_name + ' / ' + run.branch"></div>
+        </button>
+      </template>
+    </aside>
+
+    <!-- Main content -->
+    <main class="flex-1 overflow-y-auto p-6">
+
+      <!-- ── Dashboard ─────────────────────────────────────────── -->
+      <div x-show="view==='dashboard'">
+        <h1 class="text-xl font-semibold mb-1">Dashboard</h1>
+        <p class="text-sm text-gray-400 mb-6">
+          Compare PackCache's agentcache approach against naive and blobless cloning.
+          All traffic is routed through the counting proxy — no public repos are touched.
+        </p>
+
+        <!-- Stat cards -->
+        <div class="grid grid-cols-3 gap-4 mb-8">
+          <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div class="text-3xl font-bold text-indigo-400" x-text="dbStats.total_runs ?? 0"></div>
+            <div class="text-sm text-gray-400 mt-1">Total runs</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div class="text-3xl font-bold text-green-400" x-text="dbStats.complete_runs ?? 0"></div>
+            <div class="text-sm text-gray-400 mt-1">Completed</div>
+          </div>
+          <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div class="text-3xl font-bold text-yellow-400" x-text="status.repos.length"></div>
+            <div class="text-sm text-gray-400 mt-1">Repos configured</div>
+          </div>
+        </div>
+
+        <!-- Quick-start -->
+        <div class="bg-gray-800 rounded-xl p-5 border border-gray-700 mb-6 text-sm">
+          <h2 class="font-semibold mb-2 text-gray-200">Quick start</h2>
+          <ol class="space-y-2 text-gray-400 list-decimal list-inside">
+            <li>Add a local repo: <code class="bg-gray-900 px-1 rounded text-indigo-300">bash benchmark/setup_repo.sh --source /your/local/clone benchmark/repos/myrepo.git</code></li>
+            <li>Click <strong class="text-white">New Test</strong> → configure paths → run</li>
+            <li>Watch the live log, then compare the results side by side</li>
+          </ol>
+        </div>
+
+        <!-- Architecture note -->
+        <div class="bg-gray-800 rounded-xl p-5 border border-gray-700 text-sm">
+          <h2 class="font-semibold mb-3 text-gray-200">What is being measured</h2>
+          <div class="grid grid-cols-3 gap-4">
+            <div class="bg-gray-900 rounded-lg p-3">
+              <div class="text-blue-400 font-semibold mb-1">naive</div>
+              <div class="text-gray-400 text-xs">git clone --depth=1 → all blobs materialised (actions/checkout@v4 default)</div>
+            </div>
+            <div class="bg-gray-900 rounded-lg p-3">
+              <div class="text-orange-400 font-semibold mb-1">blobless</div>
+              <div class="text-gray-400 text-xs">filter=blob:none → sparse checkout of target paths (one lazy fetch per blob)</div>
+            </div>
+            <div class="bg-gray-900 rounded-lg p-3">
+              <div class="text-green-400 font-semibold mb-1">agentcache</div>
+              <div class="text-gray-400 text-xs">blobless clone → POST /resolve → ONE batched fetch of exact blobs</div>
+            </div>
+          </div>
+          <p class="text-gray-500 text-xs mt-3">
+            All git traffic passes through the counting proxy (port <span x-text="status.proxy_port"></span>
+            → <span x-text="status.git_daemon_port"></span>). Bytes are attributed per run via snapshot delta.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── New Test ───────────────────────────────────────────── -->
+      <div x-show="view==='newtest'">
+        <h1 class="text-xl font-semibold mb-6">New Test</h1>
+
+        <div class="max-w-xl bg-gray-800 rounded-xl border border-gray-700 p-6 space-y-5">
+
+          <!-- Repo -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Repository</label>
+            <select x-model="form.repo_name" class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
+              <option value="">— select —</option>
+              <template x-for="r in status.repos" :key="r">
+                <option :value="r" x-text="r"></option>
+              </template>
+            </select>
+          </div>
+
+          <!-- Branch -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Branch</label>
+            <input x-model="form.branch" type="text" placeholder="master"
+              class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono">
+          </div>
+
+          <!-- Target paths -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Target paths (one per line)</label>
+            <textarea x-model="form.target_paths_text" rows="4" placeholder="src/app.py&#10;src/util.c"
+              class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm font-mono"></textarea>
+            <p class="text-xs text-gray-500 mt-1">Paths relative to repo root that the "agent" needs to read</p>
+          </div>
+
+          <!-- Approaches -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Approaches to compare</label>
+            <div class="flex gap-4">
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" x-model="form.approaches" value="naive" class="rounded border-gray-600">
+                <span class="text-blue-400">naive</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" x-model="form.approaches" value="blobless" class="rounded border-gray-600">
+                <span class="text-orange-400">blobless</span>
+              </label>
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" x-model="form.approaches" value="agentcache" class="rounded border-gray-600">
+                <span class="text-green-400">agentcache</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Num runs -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Runs to average</label>
+            <input x-model.number="form.num_runs" type="number" min="1" max="10"
+              class="w-32 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
+          </div>
+
+          <!-- Submit -->
+          <button @click="startRun()"
+            :disabled="!form.repo_name || form.approaches.length===0"
+            class="w-full py-2 px-4 rounded bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed font-semibold text-sm transition">
+            Run Test
+          </button>
+
+          <div x-show="formError" class="text-red-400 text-sm" x-text="formError"></div>
+        </div>
+      </div>
+
+      <!-- ── History ────────────────────────────────────────────── -->
+      <div x-show="view==='history'">
+        <div class="flex items-center justify-between mb-6">
+          <h1 class="text-xl font-semibold">Run History</h1>
+          <button @click="loadHistory()" class="text-sm text-indigo-400 hover:text-indigo-300">Refresh</button>
+        </div>
+        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-900 text-gray-400 text-xs uppercase tracking-wider">
+              <tr>
+                <th class="px-4 py-3 text-left">Run ID</th>
+                <th class="px-4 py-3 text-left">Repo / Branch</th>
+                <th class="px-4 py-3 text-left">Paths</th>
+                <th class="px-4 py-3 text-left">Approaches</th>
+                <th class="px-4 py-3 text-left">Status</th>
+                <th class="px-4 py-3 text-left">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="run in historyRuns" :key="run.run_id">
+                <tr @click="openRun(run.run_id)" class="border-t border-gray-700 hover:bg-gray-750 cursor-pointer transition">
+                  <td class="px-4 py-3 font-mono text-indigo-300 text-xs" x-text="run.run_id"></td>
+                  <td class="px-4 py-3 text-gray-300 text-xs" x-text="run.repo_name + ' / ' + run.branch"></td>
+                  <td class="px-4 py-3 text-gray-400 text-xs" x-text="run.target_paths.join(', ')"></td>
+                  <td class="px-4 py-3 text-xs">
+                    <div class="flex gap-1 flex-wrap">
+                      <template x-for="a in run.approaches" :key="a">
+                        <span :class="approachChip(a)" class="px-1.5 py-0.5 rounded text-xs" x-text="a"></span>
+                      </template>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3">
+                    <span :class="statusColor(run.status)" class="text-xs rounded px-1.5 py-0.5" x-text="run.status"></span>
+                  </td>
+                  <td class="px-4 py-3 text-gray-400 text-xs" x-text="run.created_at.slice(0,19).replace('T',' ')"></td>
+                </tr>
+              </template>
+              <tr x-show="historyRuns.length===0">
+                <td colspan="6" class="px-4 py-8 text-center text-gray-600 italic text-sm">No runs yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Run detail ─────────────────────────────────────────── -->
+      <div x-show="view==='run'">
+        <div class="flex items-center gap-3 mb-5">
+          <button @click="view='history'" class="text-gray-400 hover:text-white text-sm">← History</button>
+          <h1 class="text-xl font-semibold" x-text="'Run ' + (currentRun?.run_id ?? '')"></h1>
+          <span :class="statusColor(currentRun?.status)" class="text-xs rounded px-1.5 py-0.5 font-medium"
+            x-text="currentRun?.status"></span>
+        </div>
+
+        <!-- Live log -->
+        <div x-show="currentRun?.status === 'running'" class="mb-6">
+          <h2 class="text-sm font-semibold text-gray-400 mb-2 uppercase tracking-wider">Live output</h2>
+          <div id="log-container"
+            class="bg-gray-950 rounded-xl border border-gray-800 p-4 h-80 overflow-y-auto font-mono text-xs text-gray-300 space-y-0.5">
+            <template x-for="(line, idx) in logLines" :key="idx">
+              <div x-text="line" class="leading-relaxed"></div>
+            </template>
+            <div class="animate-pulse text-indigo-400" x-show="currentRun?.status==='running'">▋</div>
+          </div>
+        </div>
+
+        <!-- Comparison (complete runs) -->
+        <div x-show="currentRun?.status === 'complete' && currentRun?.results?.length > 0">
+
+          <!-- Summary banner -->
+          <div x-show="savings" class="mb-5 bg-green-900/30 border border-green-700 rounded-xl p-4 text-sm">
+            <span class="font-semibold text-green-400">agentcache savings:</span>
+            <span class="text-green-300 ml-2" x-html="savingsSummary()"></span>
+          </div>
+
+          <!-- Metric table -->
+          <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Comparison</h2>
+          <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-6">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-900 text-gray-400 text-xs uppercase tracking-wider">
+                <tr>
+                  <th class="px-4 py-3 text-left w-36">Metric</th>
+                  <template x-for="r in currentRun.results" :key="r.approach">
+                    <th class="px-4 py-3 text-left" :class="approachHeaderColor(r.approach)" x-text="r.approach"></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-700">
+                <template x-for="row in comparisonRows()" :key="row.label">
+                  <tr class="hover:bg-gray-750 transition">
+                    <td class="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap" x-text="row.label"></td>
+                    <template x-for="r in currentRun.results" :key="r.approach">
+                      <td class="px-4 py-2.5">
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs font-mono" :class="row.best===r.approach?'text-green-400':'text-gray-300'"
+                            x-text="row.fmt(r)"></span>
+                          <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden max-w-28">
+                            <div class="h-full rounded-full transition-all"
+                              :class="row.best===r.approach?'bg-green-500':'bg-gray-500'"
+                              :style="`width:${row.pct(r)}%`"></div>
+                          </div>
+                        </div>
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Charts -->
+          <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
+              <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Wall time (seconds)</h3>
+              <canvas id="chartTime" height="180"></canvas>
+            </div>
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
+              <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Network bytes (proxy)</h3>
+              <canvas id="chartBytes" height="180"></canvas>
+            </div>
+          </div>
+
+          <!-- Phase breakdown (agentcache) -->
+          <template x-if="phaseResult()">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4">
+              <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">agentcache phase breakdown</h3>
+              <div class="flex gap-6 text-sm">
+                <div>
+                  <div class="text-gray-400 text-xs">blobless clone</div>
+                  <div class="font-mono text-indigo-300" x-text="fmtS(phaseResult()?.phases?.clone_s)"></div>
+                </div>
+                <div>
+                  <div class="text-gray-400 text-xs">POST /resolve</div>
+                  <div class="font-mono text-indigo-300" x-text="fmtS(phaseResult()?.phases?.resolve_s)"></div>
+                </div>
+                <div>
+                  <div class="text-gray-400 text-xs">targeted git fetch</div>
+                  <div class="font-mono text-green-300" x-text="fmtS(phaseResult()?.phases?.fetch_s)"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Raw JSON -->
+          <details class="bg-gray-800 rounded-xl border border-gray-700">
+            <summary class="px-4 py-3 cursor-pointer text-xs font-semibold text-gray-400 hover:text-gray-200">Raw results JSON</summary>
+            <pre class="px-4 pb-4 text-xs text-gray-300 overflow-x-auto font-mono" x-text="JSON.stringify(currentRun.results, null, 2)"></pre>
+          </details>
+        </div>
+
+        <!-- Error state -->
+        <div x-show="currentRun?.status === 'error'" class="bg-red-900/30 border border-red-700 rounded-xl p-4">
+          <p class="text-red-400 font-semibold">Run failed</p>
+          <p class="text-red-300 text-sm mt-1">Check the log above for details.</p>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
