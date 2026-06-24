@@ -1,0 +1,14 @@
+# virtual environment
+.venv/
+
+# installed package metadata
+*.egg-info/
+__pycache__/
+.pytest_cache/
+
+# benchmark repositories and results (large, local-only)
+benchmark/repos/
+benchmark/results/
+
+# environment
+.env
