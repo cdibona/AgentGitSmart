@@ -1,0 +1,33 @@
+# .agentcache — machine-readable agentcache discovery for AI agents
+#
+# Copy this file to the root of any repo that has agentcache installed,
+# rename it to ".agentcache", and fill in the values.
+#
+# Agents that discover this file can extract the service URL without
+# parsing prose:
+#
+#   python3 -c "
+#   import re, pathlib
+#   cfg = pathlib.Path('.agentcache').read_text()
+#   url = re.search(r'service_url\s*=\s*\"(.+?)\"', cfg).group(1)
+#   print(url)
+#   "
+#
+# Or with grep:
+#   grep '^service_url' .agentcache | cut -d'"' -f2
+
+# Required: URL of the running agentcache query service.
+service_url = "https://agentcache.example.com"
+
+# Optional: CDN URL for blobless bootstrap bundles.
+# Agents can pass this to --bundle-uri for a faster cold start.
+# Use {commit} as a placeholder for the commit SHA.
+bundle_cdn = "https://cdn.example.com/bundles/{commit}.bundle"
+
+# Optional: default branch (agents use this when no branch is specified).
+default_branch = "main"
+
+# Optional: git filter to use for blobless clones.
+# "blob:none" is the safest default; "tree:0" is more aggressive
+# (agents must resolve all paths by OID rather than walking trees).
+clone_filter = "blob:none"

@@ -105,6 +105,82 @@ The cold-start integration test stands up a `file://` promisor, does the
 blobless+bundle-uri clone, asserts the object DB holds trees but not the target
 blob (`GIT_NO_LAZY_FETCH=1`), then hydrates it with a single by-OID fetch.
 
+## Making your repo agent-aware
+
+Once agentcache is installed on a repo's server, you need two small
+additions to that repo so agents can discover and use it automatically.
+
+### 1 — Drop an `AGENTS.md` in the repo root
+
+`AGENTS.md` is the convention most AI agents check first (Claude,
+Amplifier agents, GitHub Copilot with
+`.github/copilot-instructions.md`, etc.).  Copy the template from this
+repo and fill in the placeholders:
+
+```bash
+cp docs/ADOPTER_AGENTS_TEMPLATE.md /your-repo/AGENTS.md
+# Edit: replace <AGENTCACHE_SERVICE_URL>, <REPO_URL>, etc.
+```
+
+The template gives agents the exact three-step cold-start protocol,
+a service endpoint reference, a symbol-lookup example, and placeholders
+for repo-specific layout and conventions.
+
+### 2 — Add a `.agentcache` config file (machine-readable discovery)
+
+Place this at the root of the repo so agents that look for structured
+configuration can find the service URL without parsing prose:
+
+```toml
+# .agentcache — machine-readable agentcache discovery for AI agents
+# See AGENTS.md for the full cold-start protocol.
+service_url = "https://agentcache.example.com"
+bundle_cdn  = "https://cdn.example.com/bundles/{commit}.bundle"
+```
+
+An agent can then do:
+```bash
+grep service_url .agentcache   # → service_url = "https://..."
+```
+
+A `.agentcache.example` is included in this repo as a starting point.
+
+### What to tell agents that don't auto-read `AGENTS.md`
+
+If your agent tool does not automatically read `AGENTS.md`, give it
+this prompt at the start of the session:
+
+> "This repository has agentcache installed.  The service is at
+> `<AGENTCACHE_SERVICE_URL>`.  Do **not** do a full or shallow clone.
+> Instead: (1) `git clone --filter=blob:none --no-checkout <REPO_URL>`,
+> (2) POST `<AGENTCACHE_SERVICE_URL>/cache/<commit>/resolve` with a JSON
+> body `{"paths":["the","files","you","need"]}` and get back
+> `fetch_oids`, (3) `git fetch origin <oids>`.  Read blobs by OID with
+> `git cat-file blob <oid>`.  This saves significant bandwidth and time
+> on large repos."
+
+Or the short form if your agent is context-aware:
+
+> "Read `AGENTS.md` — this repo uses agentcache and has the cold-start
+> protocol documented there."
+
+### Agent support matrix
+
+| Agent / tool | Reads `AGENTS.md`? | Notes |
+|---|---|---|
+| Amplifier / Claude (this tool) | ✓ auto | Reads at session start |
+| Claude Code | ✓ auto | Also reads `CLAUDE.md` |
+| GitHub Copilot Workspace | ✓ via `.github/copilot-instructions.md` | Symlink or duplicate |
+| Cursor | ✓ via `.cursorrules` | Symlink or duplicate |
+| Generic LLM agent | Depends on system prompt | Use the magic phrase above |
+
+For tools that use a different filename, symlink the file:
+
+```bash
+ln -s AGENTS.md .github/copilot-instructions.md
+ln -s AGENTS.md .cursorrules
+```
+
 ## Known edges
 
 - **JGit client** does not lazy-fetch missing blobs (throws
