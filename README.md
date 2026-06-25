@@ -54,19 +54,60 @@ server-side).
 **3. Point your agent at it.** In any coding-agent session (Claude Code, Codex
 CLI, Amplifier, Cursor, …), paste:
 
-> Read https://raw.githubusercontent.com/cdibona/AgentCache/main/README.md and
-> follow the **"If you've been sent by a human"** section to use agentcache for
-> this repo instead of a full clone.
+> Point your coding agent to
+> https://github.com/cdibona/AgentCache/blob/main/README.md and follow the
+> instructions there.
 
 …or, if the repo already has an `AGENTS.md`, simply: *"Read AGENTS.md — this
 repo uses agentcache."*
 
 ### 🤖 If you've been sent by a human
 
-You are an AI agent about to work on a repository that uses agentcache. **Do not
-`git clone` the whole thing, and do not shallow-clone.** That defeats the entire
-point. Instead, do a cold start that fetches only the blobs you will actually
-read:
+You are an AI agent about to work on a repository that uses (or should use)
+agentcache. **Do not `git clone` the whole thing, and do not shallow-clone.**
+That defeats the entire point.
+
+#### First — is this the first time agentcache is being applied to this project?
+
+Check the repo root for the discovery files that an adopted repo advertises:
+
+```bash
+grep -s service_url .agentcache    # set  → already adopted
+ls AGENTS.md .agentcache 2>/dev/null
+```
+
+**If this is the FIRST time agentcache is being applied to the project** (no
+`.agentcache`, no `AGENTS.md`, no hook on the server), set it up before you use
+it — you only do this once per project:
+
+1. **Install the hook + query service on the Git server:**
+   ```bash
+   cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
+   chmod +x /srv/git/myrepo.git/hooks/post-receive
+   git --git-dir=/srv/git/myrepo.git config uploadpack.allowFilter true
+   git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
+   AGENTCACHE_REPO_DIR=/srv/git/myrepo.git python -m agentcache.service
+   ```
+   (On GitHub, server-side `post-receive` hooks don't run — use the CI workflow
+   instead; see [This repo dogfoods agentcache](#this-repo-dogfoods-agentcache).)
+
+2. **Make the repo agent-aware** so the next agent skips straight to the
+   cold-start path — drop an `AGENTS.md` and a `.agentcache` file in the repo
+   root (see [Making your repo agent-aware](#making-your-repo-agent-aware)):
+   ```bash
+   cp docs/ADOPTER_AGENTS_TEMPLATE.md AGENTS.md   # then fill in the placeholders
+   # create .agentcache with service_url / bundle_cdn (or side-ref mode)
+   ```
+
+From then on every push keeps the cache current automatically — including pushes
+from teammates who've never heard of agentcache (the hook runs server-side).
+
+**If agentcache is already set up** (the discovery files exist), skip the above
+and go straight to the cold start below.
+
+#### Then (every time) — cold-start instead of cloning
+
+Do a cold start that fetches only the blobs you will actually read:
 
 ```bash
 # 0. Discover the service. A AgentCache-enabled repo advertises it in one of:
