@@ -33,7 +33,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import docker_runner
-from .models import RunConfig, SystemStatus
+from .experiment_runner import ExperimentRunner
+from .models import ExperimentConfig, RunConfig, SystemStatus
 from .processes import AgentCacheService, GitDaemon
 from .proxy import ByteCountingProxy
 from .runner import TestRunner
@@ -68,6 +69,13 @@ _proxy: Optional[ByteCountingProxy] = None
 _agentcache_svc: Optional[AgentCacheService] = None
 _runner: Optional[TestRunner] = None
 _storage: Optional[ResultStorage] = None
+_exp_runner: Optional[ExperimentRunner] = None
+
+# Comprehensive experiments live in memory while running and are persisted to
+# JSON on completion (simple, no schema migration to worry about).
+_EXP_DIR = _HERE / "data" / "experiments"
+_experiments: dict = {}                     # exp_id -> record dict
+_exp_queues: dict = {}                       # exp_id -> asyncio.Queue of log lines
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +117,7 @@ def _list_repos() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _git_daemon, _proxy, _agentcache_svc, _runner, _storage
+    global _git_daemon, _proxy, _agentcache_svc, _runner, _storage, _exp_runner
 
     _storage = ResultStorage(_DB_PATH)
 
@@ -134,6 +142,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         git_proxy_port=PROXY_PORT,
         agentcache_port=SVC_PORT,
     )
+
+    _exp_runner = ExperimentRunner(
+        proxy=_proxy,
+        agentcache_svc=_agentcache_svc,
+        repos_dir=_REPOS_DIR,
+        proxy_port=PROXY_PORT,
+        svc_port=SVC_PORT,
+    )
+    _EXP_DIR.mkdir(parents=True, exist_ok=True)
 
     log.info("Test harness ready on http://127.0.0.1:%d", WEB_PORT)
     yield
@@ -333,3 +350,138 @@ async def proxy_timeseries(seconds: float = 60.0) -> dict:
     assert _proxy
     points = _proxy.live_timeseries(seconds)
     return {"points": points, "latency_ms": _proxy.latency_ms}
+
+
+# ---------------------------------------------------------------------------
+# Routes — Comprehensive experiments (multi-project cold/warm campaigns)
+# ---------------------------------------------------------------------------
+
+
+def _exp_persist(exp_id: str) -> None:
+    rec = _experiments.get(exp_id)
+    if rec is not None:
+        (_EXP_DIR / f"{exp_id}.json").write_text(json.dumps(rec, indent=2))
+
+
+def _exp_load_all() -> list[dict]:
+    out = []
+    for rec in _experiments.values():
+        out.append(rec)
+    if _EXP_DIR.exists():
+        seen = set(_experiments)
+        for f in sorted(_EXP_DIR.glob("*.json"), reverse=True):
+            if f.stem in seen:
+                continue
+            try:
+                out.append(json.loads(f.read_text()))
+            except Exception:
+                pass
+    return out
+
+
+@app.get("/api/experiments")
+async def list_experiments() -> dict:
+    recs = _exp_load_all()
+    # Return summaries only (no heavy timelines) for the list view.
+    summaries = [
+        {k: r.get(k) for k in ("experiment_id", "created_at", "status", "config")}
+        for r in recs
+    ]
+    summaries.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+    return {"experiments": summaries}
+
+
+@app.get("/api/experiments/{exp_id}")
+async def get_experiment(exp_id: str) -> dict:
+    rec = _experiments.get(exp_id)
+    if rec is None:
+        f = _EXP_DIR / f"{exp_id}.json"
+        if f.exists():
+            return json.loads(f.read_text())
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return rec
+
+
+@app.post("/api/experiments")
+async def start_experiment(config: ExperimentConfig) -> dict:
+    assert _exp_runner
+    repos = _list_repos()
+    chosen = [r for r in config.repos if r in repos]
+    if not chosen:
+        raise HTTPException(status_code=400, detail="No valid repos selected")
+
+    exp_id = uuid.uuid4().hex[:8]
+    rec = {
+        "experiment_id": exp_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "running",
+        "config": config.model_dump() | {"repos": chosen},
+        "campaigns": [],
+        "log": [],
+    }
+    _experiments[exp_id] = rec
+    _exp_queues[exp_id] = asyncio.Queue()
+    asyncio.create_task(_run_experiment(exp_id, rec["config"]))
+    return {"experiment_id": exp_id, "status": "running"}
+
+
+async def _run_experiment(exp_id: str, config: dict) -> None:
+    assert _exp_runner
+    rec = _experiments[exp_id]
+    queue = _exp_queues.get(exp_id)
+
+    def emit(line: str) -> None:
+        rec["log"].append(line)
+        if queue:
+            queue.put_nowait({"type": "log", "line": line})
+
+    try:
+        result = await _exp_runner.run(exp_id, config, emit)
+        rec["campaigns"] = result["campaigns"]
+        rec["status"] = "complete"
+    except Exception as exc:
+        log.exception("experiment %s failed", exp_id)
+        rec["status"] = "error"
+        rec["error"] = str(exc)
+        emit(f"EXPERIMENT FAILED: {exc}")
+    finally:
+        _exp_persist(exp_id)
+        if queue:
+            queue.put_nowait({"type": "experiment_complete", "status": rec["status"]})
+            queue.put_nowait({"type": "stream_end"})
+
+
+@app.get("/api/experiments/{exp_id}/stream")
+async def stream_experiment(exp_id: str) -> StreamingResponse:
+    rec = _experiments.get(exp_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+
+    queue = _exp_queues.get(exp_id)
+    if rec["status"] in ("complete", "error") or queue is None:
+        async def _replay() -> AsyncIterator[str]:
+            for line in rec.get("log", []):
+                yield f"data: {json.dumps({'type': 'log', 'line': line})}\n\n"
+            yield f"data: {json.dumps({'type': 'experiment_complete', 'status': rec['status']})}\n\n"
+            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+        return StreamingResponse(_replay(), media_type="text/event-stream")
+
+    async def _generate() -> AsyncIterator[str]:
+        # Replay any log already accumulated, then stream live.
+        for line in list(rec.get("log", [])):
+            yield f"data: {json.dumps({'type': 'log', 'line': line})}\n\n"
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                yield 'data: {"type":"ping"}\n\n'
+                continue
+            yield f"data: {json.dumps(event)}\n\n"
+            if event.get("type") in ("stream_end", "error"):
+                break
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

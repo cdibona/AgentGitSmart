@@ -43,6 +43,27 @@ function app() {
     savings: null,
     formError: '',
 
+    // ── comprehensive experiments ──────────────────────────────────────
+    exp: {
+      repos: [],
+      methods: ['naive', 'blobless', 'agentcache'],
+      passes: 3,
+      pct: 2.0,
+      seed: 1000,
+      human_pass: false,
+      hook_warms: true,
+    },
+    expRunning: false,
+    expError: '',
+    expHistory: [],
+    currentExp: null,
+    expLog: [],
+    expTimelineRepo: '',
+    _expSse: null,
+    _expChartMethods: null,
+    _expChartColdWarm: null,
+    _expChartTimeline: null,
+
     // Preset example scenarios — shown in the New Test form
     presets: [
       {
@@ -127,6 +148,227 @@ function app() {
       this.form.repo_name = p.repo_name;
       this.form.branch    = p.branch;
       this.form.target_paths_text = p.paths;
+    },
+
+    // ── comprehensive experiments ──────────────────────────────────────
+    async openExperiments() {
+      this.view = 'experiments';
+      if (this.exp.repos.length === 0 && this.status.repos.length) {
+        // Default to a sensible small spread so the first run is fast.
+        this.exp.repos = this.status.repos.slice(0, Math.min(4, this.status.repos.length));
+      }
+      await this.loadExperiments();
+    },
+
+    async loadExperiments() {
+      try {
+        const d = await fetch('/api/experiments').then(r => r.json());
+        this.expHistory = d.experiments || [];
+      } catch (e) { /* ignore */ }
+    },
+
+    async startExperiment() {
+      this.expError = '';
+      if (!this.exp.repos.length)   { this.expError = 'Select at least one project.'; return; }
+      if (!this.exp.methods.length) { this.expError = 'Select at least one method.'; return; }
+      const body = {
+        repos: [...this.exp.repos],
+        methods: [...this.exp.methods],
+        passes: Number(this.exp.passes) || 3,
+        pct: Number(this.exp.pct) || 2.0,
+        seed: Number(this.exp.seed) || 1000,
+        human_pass: !!this.exp.human_pass,
+        hook_warms: !!this.exp.hook_warms,
+      };
+      let data;
+      try {
+        const r = await fetch('/api/experiments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        data = await r.json();
+        if (!r.ok) { this.expError = data.detail || 'Failed to start.'; return; }
+      } catch (e) { this.expError = String(e); return; }
+      await this.openExperiment(data.experiment_id);
+    },
+
+    async openExperiment(expId) {
+      this.expLog = [];
+      this.expRunning = false;
+      this._destroyExpCharts();
+      const e = await fetch(`/api/experiments/${expId}`).then(r => r.json());
+      this.currentExp = e;
+      this.view = 'exp_detail';
+      this.expTimelineRepo = e.campaigns?.[0]?.repo || '';
+
+      if (e.status === 'running') {
+        this.expRunning = true;
+        this._subscribeExpSSE(expId);
+      } else if (e.status === 'complete') {
+        await this.$nextTick();
+        this._renderExpCharts();
+      }
+    },
+
+    _subscribeExpSSE(expId) {
+      if (this._expSse) { this._expSse.close(); this._expSse = null; }
+      const es = new EventSource(`/api/experiments/${expId}/stream`);
+      this._expSse = es;
+      es.onmessage = (ev) => {
+        let event; try { event = JSON.parse(ev.data); } catch { return; }
+        if (event.type === 'log') {
+          this.expLog.push(event.line);
+          this.$nextTick(() => {
+            const c = document.getElementById('exp-log');
+            if (c) c.scrollTop = c.scrollHeight;
+          });
+        } else if (event.type === 'experiment_complete') {
+          this.expRunning = false;
+          // Re-fetch the full record (campaigns + summaries) and render.
+          fetch(`/api/experiments/${expId}`).then(r => r.json()).then(async (full) => {
+            this.currentExp = full;
+            this.expTimelineRepo = full.campaigns?.[0]?.repo || '';
+            await this.$nextTick();
+            this._renderExpCharts();
+          });
+          this.loadExperiments();
+        } else if (event.type === 'stream_end') {
+          if (this._expSse === es) { es.close(); this._expSse = null; }
+        }
+      };
+      es.onerror = () => {
+        if (this._expSse === es) { es.close(); this._expSse = null; }
+      };
+    },
+
+    _destroyExpCharts() {
+      for (const k of ['_expChartMethods', '_expChartColdWarm', '_expChartTimeline']) {
+        if (this[k]) { this[k].destroy(); this[k] = null; }
+      }
+    },
+
+    _renderExpCharts() {
+      const exp = this.currentExp;
+      if (!exp?.campaigns?.length) return;
+      const campaigns = exp.campaigns.filter(c => c.summary && Object.keys(c.summary).length);
+      const methods = exp.config.methods || [];
+      const repos = campaigns.map(c => c.repo);
+      const logOpts = (title) => ({
+        responsive: true,
+        plugins: { legend: { display: true, labels: { color: '#9ca3af', boxWidth: 12 } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${FMT.bytes(ctx.parsed.y)}` } } },
+        scales: {
+          x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+          y: { type: 'logarithmic', ticks: { color: '#9ca3af', callback: v => FMT.bytes(v) },
+               grid: { color: '#374151' }, title: { display: true, text: title, color: '#6b7280' } },
+        },
+      });
+
+      // Chart 1: network by method (warm avg), grouped by repo, log scale.
+      const ctxM = document.getElementById('expChartMethods');
+      if (ctxM) {
+        this._expChartMethods = new Chart(ctxM, {
+          type: 'bar',
+          data: {
+            labels: repos,
+            datasets: methods.map(m => ({
+              label: m,
+              data: campaigns.map(c => (c.summary[m]?.warm_avg_bytes) || 0),
+              backgroundColor: (APPROACH_COLORS[m] || APPROACH_COLORS.naive).bg + 'cc',
+              borderColor: (APPROACH_COLORS[m] || APPROACH_COLORS.naive).border,
+              borderWidth: 1, borderRadius: 3,
+            })),
+          },
+          options: logOpts('bytes (warm avg)'),
+        });
+      }
+
+      // Chart 2: agentcache cold vs warm, grouped by repo.
+      const ctxCW = document.getElementById('expChartColdWarm');
+      if (ctxCW) {
+        this._expChartColdWarm = new Chart(ctxCW, {
+          type: 'bar',
+          data: {
+            labels: repos,
+            datasets: [
+              { label: 'cold (1st run)', data: campaigns.map(c => c.summary.agentcache?.cold_bytes || 0),
+                backgroundColor: '#64748bcc', borderColor: '#475569', borderWidth: 1, borderRadius: 3 },
+              { label: 'warm (avg)', data: campaigns.map(c => c.summary.agentcache?.warm_avg_bytes || 0),
+                backgroundColor: APPROACH_COLORS.agentcache.bg + 'cc', borderColor: APPROACH_COLORS.agentcache.border, borderWidth: 1, borderRadius: 3 },
+            ],
+          },
+          options: logOpts('bytes'),
+        });
+      }
+
+      this.renderExpTimeline();
+    },
+
+    renderExpTimeline() {
+      const exp = this.currentExp;
+      if (!exp?.campaigns?.length) return;
+      const campaign = exp.campaigns.find(c => c.repo === this.expTimelineRepo) || exp.campaigns[0];
+      if (!campaign) return;
+      const methods = exp.config.methods || [];
+      const agentPasses = (campaign.timeline || []).filter(p => p.kind === 'agent');
+      const labels = agentPasses.map(p => 'pass ' + p.pass_index);
+
+      // x-positions of human commits (between agent passes), for marker lines.
+      const humanAfter = (campaign.timeline || [])
+        .filter(p => p.kind === 'human')
+        .map(p => p.pass_index);  // human happens after this pass index
+
+      const datasets = methods.map(m => ({
+        label: m,
+        data: agentPasses.map(p => (p.cells?.[m]?.bytes) || 0),
+        borderColor: (APPROACH_COLORS[m] || APPROACH_COLORS.naive).border,
+        backgroundColor: (APPROACH_COLORS[m] || APPROACH_COLORS.naive).bg + '33',
+        pointRadius: 4, pointBackgroundColor: agentPasses.map(p =>
+          (m === 'agentcache' && p.cells?.[m]?.cold) ? '#f59e0b' : (APPROACH_COLORS[m] || APPROACH_COLORS.naive).bg),
+        tension: 0.2, fill: false,
+      }));
+
+      if (this._expChartTimeline) { this._expChartTimeline.destroy(); this._expChartTimeline = null; }
+      const ctx = document.getElementById('expChartTimeline');
+      if (!ctx) return;
+
+      // Vertical marker lines for human commits via a tiny inline plugin.
+      const markerPlugin = {
+        id: 'humanMarkers',
+        afterDraw(chart) {
+          const xScale = chart.scales.x, area = chart.chartArea, c = chart.ctx;
+          humanAfter.forEach(pi => {
+            const idx = agentPasses.findIndex(p => p.pass_index === pi);
+            if (idx < 0 || idx >= agentPasses.length - 1) return;
+            const x = (xScale.getPixelForValue(idx) + xScale.getPixelForValue(idx + 1)) / 2;
+            c.save();
+            c.strokeStyle = '#eab308'; c.lineWidth = 1.5; c.setLineDash([5, 4]);
+            c.beginPath(); c.moveTo(x, area.top); c.lineTo(x, area.bottom); c.stroke();
+            c.fillStyle = '#eab308'; c.font = '10px sans-serif';
+            c.fillText('human commit', x + 4, area.top + 12);
+            c.restore();
+          });
+        },
+      };
+
+      this._expChartTimeline = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true, labels: { color: '#9ca3af', boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${FMT.bytes(ctx.parsed.y)}` } },
+          },
+          scales: {
+            x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+            y: { type: 'logarithmic', ticks: { color: '#9ca3af', callback: v => FMT.bytes(v) },
+                 grid: { color: '#374151' }, title: { display: true, text: 'bytes (log)', color: '#6b7280' } },
+          },
+        },
+        plugins: [markerPlugin],
+      });
     },
 
     // ── new test ──────────────────────────────────────────────────────────

@@ -51,13 +51,27 @@ _BUNDLE_SEARCH_DIRS = [
 
 
 def _find_bundle(repo_url: str, branch: str) -> Optional[str]:
-    """Return path to a pre-built blobless bundle for this repo+branch, or None."""
+    """Return path to a pre-built blobless bundle for this repo, or None.
+
+    We prefer an exact ``<repo>-<branch>.bundle`` match, but fall back to ANY
+    bundle for the repo (``<repo>-*.bundle``).  A bundle only *seeds history*
+    via --bundle-uri; the branch it was cut from is irrelevant because a
+    throwaway/experiment branch (e.g. ``agentcache-exp/...``) shares the base
+    branch's history, so the same objects are reused and only the tiny delta is
+    fetched.  Without this fallback, experiments that target a renamed branch
+    would silently skip the bundle and clone the full history through the daemon.
+    """
+    import glob as _glob
+
     repo_name = os.path.basename(repo_url.rstrip("/"))
-    filename = f"{repo_name}-{branch}.bundle"
     for d in _BUNDLE_SEARCH_DIRS:
-        path = os.path.join(d, filename)
-        if os.path.exists(path):
-            return path
+        exact = os.path.join(d, f"{repo_name}-{branch}.bundle")
+        if os.path.exists(exact):
+            return exact
+    for d in _BUNDLE_SEARCH_DIRS:
+        matches = sorted(_glob.glob(os.path.join(d, f"{repo_name}-*.bundle")))
+        if matches:
+            return matches[0]
     return None
 
 

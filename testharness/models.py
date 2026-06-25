@@ -96,6 +96,17 @@ class RunDetail(RunSummary):
     agent_seed: int = 42
 
 
+class ExperimentConfig(BaseModel):
+    """A comprehensive multi-project campaign (cold/warm + method comparison)."""
+    repos: List[str]
+    methods: List[str] = ["naive", "blobless", "agentcache"]
+    passes: int = 3                 # agent passes per repo (1st = cold, rest = warm)
+    pct: float = 2.0                # % of source files the agent edits
+    seed: int = 1000
+    human_pass: bool = False        # insert a teammate commit after pass 1
+    hook_warms: bool = True         # does the server hook pre-warm the new commit's cache?
+
+
 class SystemStatus(BaseModel):
     git_daemon: bool = False
     git_daemon_port: int = 9418
