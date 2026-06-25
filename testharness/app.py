@@ -32,7 +32,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .models import RunConfig, RunDetail, RunSummary, SystemStatus
+from . import docker_runner
+from .models import RunConfig, SystemStatus
 from .processes import AgentCacheService, GitDaemon
 from .proxy import ByteCountingProxy
 from .runner import TestRunner
@@ -73,12 +74,15 @@ _storage: Optional[ResultStorage] = None
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _kill_stale_port_holder(port: int) -> None:
     """Terminate any process already bound to *port* (prevents EADDRINUSE)."""
     try:
         r = subprocess.run(
             ["lsof", "-ti", f":{port}"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if r.returncode == 0 and r.stdout.strip():
             my_pid = os.getpid()
@@ -95,15 +99,13 @@ def _list_repos() -> list[str]:
     d = Path(_REPOS_DIR)
     if not d.exists():
         return []
-    return sorted(
-        p.name for p in d.iterdir()
-        if p.is_dir() and (p / "HEAD").exists()
-    )
+    return sorted(p.name for p in d.iterdir() if p.is_dir() and (p / "HEAD").exists())
 
 
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -120,7 +122,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     git_ok = await _git_daemon.start()
     if not git_ok:
-        log.warning("git daemon did not start cleanly — tests that clone via git:// will fail")
+        log.warning(
+            "git daemon did not start cleanly — tests that clone via git:// will fail"
+        )
 
     await _proxy.start()
 
@@ -155,6 +159,7 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 # Routes — UI
 # ---------------------------------------------------------------------------
 
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(str(_STATIC_DIR / "index.html"))
@@ -163,6 +168,7 @@ async def index() -> FileResponse:
 # ---------------------------------------------------------------------------
 # Routes — API
 # ---------------------------------------------------------------------------
+
 
 @app.get("/api/status")
 async def status() -> SystemStatus:
@@ -174,6 +180,7 @@ async def status() -> SystemStatus:
         agentcache_service=_agentcache_svc.is_running if _agentcache_svc else False,
         agentcache_port=SVC_PORT,
         repos=_list_repos(),
+        docker_available=docker_runner.is_docker_available(),
     )
 
 
@@ -228,7 +235,10 @@ async def _start_and_run(run_id: str, config: RunConfig, repo_path: str) -> None
     try:
         svc_ok = await _agentcache_svc.switch_repo(repo_path)
         if not svc_ok and "agentcache" in config.approaches:
-            _runner._log(run_id, "WARNING: agentcache service did not start; agentcache approach may fail")
+            _runner._log(
+                run_id,
+                "WARNING: agentcache service did not start; agentcache approach may fail",
+            )
 
         results = await _runner.execute(
             run_id=run_id,
@@ -237,6 +247,8 @@ async def _start_and_run(run_id: str, config: RunConfig, repo_path: str) -> None
             target_paths=config.target_paths,
             approaches=config.approaches,
             num_runs=config.num_runs,
+            use_docker=config.use_docker,
+            latency_ms=config.latency_ms,
         )
         _storage.finish_run(run_id, "complete", results)
     except Exception as exc:
@@ -256,9 +268,11 @@ async def stream_run(run_id: str) -> StreamingResponse:
 
     # If the run is already complete, stream the results immediately.
     if run.status in ("complete", "error"):
+
         async def _replay() -> AsyncIterator[str]:
             yield f"data: {json.dumps({'type': 'run_complete', 'results': [r.model_dump() for r in run.results]})}\n\n"
             yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+
         return StreamingResponse(_replay(), media_type="text/event-stream")
 
     # Live stream from the runner's queue.
@@ -267,9 +281,11 @@ async def stream_run(run_id: str) -> StreamingResponse:
         # Race: run finished between the status check and here.
         run2 = _storage.get_run(run_id)
         if run2 and run2.status in ("complete", "error"):
+
             async def _replay2() -> AsyncIterator[str]:
                 yield f"data: {json.dumps({'type': 'run_complete', 'results': [r.model_dump() for r in run2.results]})}\n\n"
                 yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
+
             return StreamingResponse(_replay2(), media_type="text/event-stream")
         raise HTTPException(status_code=404, detail="Queue not found; run may have ended")
 
@@ -278,7 +294,7 @@ async def stream_run(run_id: str) -> StreamingResponse:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=30.0)
             except asyncio.TimeoutError:
-                yield "data: {\"type\":\"ping\"}\n\n"
+                yield 'data: {"type":"ping"}\n\n'
                 continue
             yield f"data: {json.dumps(event)}\n\n"
             if event.get("type") in ("stream_end", "error"):
@@ -304,4 +320,13 @@ async def proxy_stats() -> dict:
         "active_connections": _proxy.active_connections,
         "total_connections": _proxy.total_connections,
         "is_running": _proxy.is_running,
+        "latency_ms": _proxy.latency_ms,
     }
+
+
+@app.get("/api/proxy/timeseries")
+async def proxy_timeseries(seconds: float = 60.0) -> dict:
+    """Return live proxy byte timeseries for the last *seconds* seconds."""
+    assert _proxy
+    points = _proxy.live_timeseries(seconds)
+    return {"points": points, "latency_ms": _proxy.latency_ms}

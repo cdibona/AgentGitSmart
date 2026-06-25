@@ -18,6 +18,11 @@ const FMT = {
     s = Number(s) || 0;
     return `${s.toFixed(3)}s`;
   },
+  ms(ms) {
+    ms = Number(ms) || 0;
+    if (ms >= 1000) return `${(ms/1000).toFixed(2)}s`;
+    return `${ms.toFixed(0)}ms`;
+  },
   number(n) {
     return (Number(n) || 0).toLocaleString();
   },
@@ -25,10 +30,11 @@ const FMT = {
 
 function app() {
   return {
-    // ── state ────────────────────────────────────────────────────
+    // ── state ────────────────────────────────────────────────────────────
     view: 'dashboard',
     status: { git_daemon: false, git_daemon_port: 9418, proxy: false, proxy_port: 9419,
-               agentcache_service: false, agentcache_port: 8765, repos: [] },
+               agentcache_service: false, agentcache_port: 8765, repos: [],
+               docker_available: false },
     dbStats: {},
     recentRuns: [],
     historyRuns: [],
@@ -71,21 +77,26 @@ function app() {
       target_paths_text: 'Lib/asyncio/tasks.py\nLib/asyncio/base_events.py\nLib/ast.py',
       approaches: ['naive', 'blobless', 'agentcache'],
       num_runs: 3,
+      use_docker: true,
+      latency_ms: 0,
     },
 
     _sse: null,
     _chartTime: null,
     _chartBytes: null,
+    _chartPhase: null,
+    _chartCpu: null,
+    _chartNet: null,
     _statusTimer: null,
 
-    // ── init ─────────────────────────────────────────────────────
+    // ── init ──────────────────────────────────────────────────────────────
     async init() {
       await this.refreshStatus();
       await this.loadHistory();
       this._statusTimer = setInterval(() => this.refreshStatus(), 5000);
     },
 
-    // ── status & data ─────────────────────────────────────────────
+    // ── status & data ─────────────────────────────────────────────────────
     async refreshStatus() {
       try {
         const [st, runs] = await Promise.all([
@@ -95,6 +106,8 @@ function app() {
         this.status = st;
         this.recentRuns = (runs.runs || []).slice(0, 8);
         this.historyRuns = runs.runs || [];
+        // Update docker toggle label if status changed
+        this.form.use_docker = st.docker_available;
       } catch (e) { /* network down — ignore */ }
     },
 
@@ -106,14 +119,14 @@ function app() {
       } catch(e) {}
     },
 
-    // ── presets ───────────────────────────────────────────────────
+    // ── presets ───────────────────────────────────────────────────────────
     applyPreset(p) {
       this.form.repo_name = p.repo_name;
       this.form.branch    = p.branch;
       this.form.target_paths_text = p.paths;
     },
 
-    // ── new test ──────────────────────────────────────────────────
+    // ── new test ──────────────────────────────────────────────────────────
     async startRun() {
       this.formError = '';
       const paths = this.form.target_paths_text.split('\n').map(s => s.trim()).filter(Boolean);
@@ -127,6 +140,8 @@ function app() {
         target_paths: paths,
         approaches: [...this.form.approaches],
         num_runs: Number(this.form.num_runs) || 3,
+        use_docker: this.form.use_docker,
+        latency_ms: Number(this.form.latency_ms) || 0,
       };
 
       let data;
@@ -143,7 +158,7 @@ function app() {
       await this.openRun(data.run_id);
     },
 
-    // ── run detail ────────────────────────────────────────────────
+    // ── run detail ────────────────────────────────────────────────────────
     async openRun(runId) {
       this.logLines = [];
       this.savings = null;
@@ -223,7 +238,7 @@ function app() {
       };
     },
 
-    // ── comparison helpers ────────────────────────────────────────
+    // ── comparison helpers ─────────────────────────────────────────────────
     comparisonRows() {
       if (!this.currentRun?.results?.length) return [];
       const results = this.currentRun.results;
@@ -244,7 +259,7 @@ function app() {
         };
       };
 
-      return [
+      const rows = [
         makeRow('Wall time',        r => r.elapsed_s,            FMT.seconds),
         makeRow('Bytes ↑ (sent)',    r => r.bytes_proxy_in,       FMT.bytes),
         makeRow('Bytes ↓ (recv)',    r => r.bytes_proxy_out,      FMT.bytes),
@@ -253,6 +268,18 @@ function app() {
         makeRow('Disk usage',        r => r.disk_bytes,           FMT.bytes),
         makeRow('Files on disk',     r => r.file_count,           FMT.number),
       ];
+
+      // Add agent-task rows if any result has agent_task data
+      const hasAgent = results.some(r => r.agent_task);
+      if (hasAgent) {
+        rows.push(
+          makeRow('Agent ready',      r => r.agent_task?.total_agent_ready_ms ?? 0, FMT.ms),
+          makeRow('Net roundtrips',   r => r.agent_task?.network_roundtrips ?? 0,   FMT.number),
+          makeRow('Symbol lookup',    r => r.agent_task?.symbol_lookup_ms ?? 0,     FMT.ms),
+        );
+      }
+
+      return rows;
     },
 
     _computeSavings(results) {
@@ -267,6 +294,8 @@ function app() {
           ? Math.round((1 - ac.bytes_proxy_total / naive.bytes_proxy_total) * 100) : 0,
         time_abs: FMT.seconds(naive.elapsed_s - ac.elapsed_s),
         bytes_abs: FMT.bytes(naive.bytes_proxy_total - ac.bytes_proxy_total),
+        agent_ready_naive: naive.agent_task?.total_agent_ready_ms,
+        agent_ready_ac: ac.agent_task?.total_agent_ready_ms,
       };
     },
 
@@ -283,10 +312,29 @@ function app() {
 
     fmtS(v) { return FMT.seconds(v ?? 0); },
 
-    // ── charts ────────────────────────────────────────────────────
+    // ── "time to productive" cards ─────────────────────────────────────────
+    agentCards() {
+      if (!this.currentRun?.results?.length) return [];
+      return this.currentRun.results
+        .filter(r => r.agent_task)
+        .map(r => ({
+          approach: r.approach,
+          total_ms: r.agent_task.total_agent_ready_ms,
+          symbol_ms: r.agent_task.symbol_lookup_ms,
+          file_ms: r.agent_task.file_read_ms,
+          roundtrips: r.agent_task.network_roundtrips,
+          grep_cpu: r.agent_task.grep_cpu_pct,
+          used_docker: r.used_docker,
+        }));
+    },
+
+    // ── charts ──────────────────────────────────────────────────────────────
     _destroyCharts() {
       if (this._chartTime)  { this._chartTime.destroy();  this._chartTime  = null; }
       if (this._chartBytes) { this._chartBytes.destroy(); this._chartBytes = null; }
+      if (this._chartPhase) { this._chartPhase.destroy(); this._chartPhase = null; }
+      if (this._chartCpu)   { this._chartCpu.destroy();   this._chartCpu   = null; }
+      if (this._chartNet)   { this._chartNet.destroy();   this._chartNet   = null; }
     },
 
     _renderCharts(results) {
@@ -363,9 +411,166 @@ function app() {
           }},
         });
       }
+
+      // Phase timeline chart (stacked horizontal bar: clone + symbol_lookup + file_read)
+      this._renderPhaseChart(results);
+
+      // CPU timeseries
+      this._renderCpuChart(results);
+
+      // Network rate timeseries
+      this._renderNetChart(results);
     },
 
-    // ── styling helpers ───────────────────────────────────────────
+    _renderPhaseChart(results) {
+      const ctxPhase = document.getElementById('chartPhase');
+      if (!ctxPhase) return;
+      const hasAgent = results.some(r => r.agent_task);
+      if (!hasAgent) return;
+
+      const labels = results.map(r => r.approach);
+      const cloneData   = results.map(r => r.clone_ms || (r.elapsed_s * 1000) || 0);
+      const symbolData  = results.map(r => r.agent_task?.symbol_lookup_ms || 0);
+      const fileData    = results.map(r => r.agent_task?.file_read_ms || 0);
+
+      this._chartPhase = new Chart(ctxPhase, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Clone (ms)',
+              data: cloneData,
+              backgroundColor: labels.map(a => (APPROACH_COLORS[a] || APPROACH_COLORS.naive).bg + 'cc'),
+              borderWidth: 0,
+              borderRadius: 4,
+            },
+            {
+              label: 'Symbol lookup (ms)',
+              data: symbolData,
+              backgroundColor: '#f59e0b99',
+              borderWidth: 0,
+            },
+            {
+              label: 'File read (ms)',
+              data: fileData,
+              backgroundColor: '#14b8a699',
+              borderWidth: 0,
+            },
+          ],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: {
+            legend: { display: true, labels: { color: '#9ca3af', boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.x.toFixed(0)}ms` } },
+          },
+          scales: {
+            x: { stacked: true, ticks: { color: '#9ca3af' }, grid: { color: '#374151' }, beginAtZero: true,
+                 title: { display: true, text: 'milliseconds', color: '#6b7280' } },
+            y: { stacked: true, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+          },
+        },
+      });
+    },
+
+    _renderCpuChart(results) {
+      const ctxCpu = document.getElementById('chartCpu');
+      if (!ctxCpu) return;
+      const hasTs = results.some(r => r.timeseries?.length > 0);
+      if (!hasTs) return;
+
+      const datasets = results.map(r => {
+        const c = (APPROACH_COLORS[r.approach] || APPROACH_COLORS.naive);
+        return {
+          label: r.approach,
+          data: (r.timeseries || []).map(p => ({ x: p.t_ms / 1000, y: p.cpu_pct })),
+          borderColor: c.border,
+          backgroundColor: c.bg + '33',
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false,
+          parsing: false,
+        };
+      }).filter(ds => ds.data.length > 0);
+
+      if (!datasets.length) return;
+
+      this._chartCpu = new Chart(ctxCpu, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          animation: false,
+          plugins: {
+            legend: { display: true, labels: { color: '#9ca3af', boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%` } },
+          },
+          scales: {
+            x: { type: 'linear', ticks: { color: '#9ca3af' }, grid: { color: '#374151' },
+                 title: { display: true, text: 'time (s)', color: '#6b7280' } },
+            y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' }, beginAtZero: true,
+                 title: { display: true, text: 'CPU % (100=1 core)', color: '#6b7280' } },
+          },
+        },
+      });
+    },
+
+    _renderNetChart(results) {
+      const ctxNet = document.getElementById('chartNet');
+      if (!ctxNet) return;
+      const hasTs = results.some(r => r.timeseries?.length > 0);
+      if (!hasTs) return;
+
+      const INTERVAL_S = 0.2;  // matches proxy sample interval
+
+      const datasets = results.map(r => {
+        const c = (APPROACH_COLORS[r.approach] || APPROACH_COLORS.naive);
+        return {
+          label: r.approach,
+          data: (r.timeseries || []).map(p => ({
+            x: p.t_ms / 1000,
+            y: (p.bytes_out + p.bytes_in) / INTERVAL_S,
+          })),
+          borderColor: c.border,
+          backgroundColor: c.bg + '44',
+          pointRadius: 0,
+          tension: 0.2,
+          fill: true,
+          parsing: false,
+        };
+      }).filter(ds => ds.data.length > 0);
+
+      if (!datasets.length) return;
+
+      this._chartNet = new Chart(ctxNet, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          animation: false,
+          plugins: {
+            legend: { display: true, labels: { color: '#9ca3af', boxWidth: 12 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${FMT.bytes(ctx.parsed.y)}/s` } },
+          },
+          scales: {
+            x: { type: 'linear', ticks: { color: '#9ca3af' }, grid: { color: '#374151' },
+                 title: { display: true, text: 'time (s)', color: '#6b7280' } },
+            y: {
+              ticks: {
+                color: '#9ca3af',
+                callback: v => FMT.bytes(v) + '/s',
+              },
+              grid: { color: '#374151' }, beginAtZero: true,
+              title: { display: true, text: 'network rate', color: '#6b7280' },
+            },
+          },
+        },
+      });
+    },
+
+    // ── styling helpers ────────────────────────────────────────────────────
     statusColor(s) {
       switch (s) {
         case 'complete': return 'bg-green-900 text-green-300';

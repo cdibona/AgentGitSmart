@@ -1,7 +1,7 @@
 """Pydantic models for the test harness API."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -11,12 +11,29 @@ class RunConfig(BaseModel):
     target_paths: List[str]
     approaches: List[str] = ["naive", "blobless", "agentcache"]
     num_runs: int = 3
+    use_docker: bool = True
+    latency_ms: int = 0
 
 
 class PhaseBreakdown(BaseModel):
     clone_s: float = 0.0
     resolve_s: float = 0.0
     fetch_s: float = 0.0
+
+
+class TimeseriesPoint(BaseModel):
+    t_ms: float = 0.0
+    bytes_in: int = 0
+    bytes_out: int = 0
+    cpu_pct: float = 0.0
+
+
+class AgentTaskMetrics(BaseModel):
+    symbol_lookup_ms: float = 0.0
+    file_read_ms: float = 0.0
+    network_roundtrips: int = 0
+    total_agent_ready_ms: float = 0.0
+    grep_cpu_pct: float = 0.0
 
 
 class ApproachResult(BaseModel):
@@ -30,6 +47,12 @@ class ApproachResult(BaseModel):
     file_count: int = 0
     phases: Optional[PhaseBreakdown] = None
     error: Optional[str] = None
+    # New Docker / agent-task fields
+    clone_ms: float = 0.0
+    timeseries: List[TimeseriesPoint] = Field(default_factory=list)
+    agent_task: Optional[AgentTaskMetrics] = None
+    used_docker: bool = False
+    latency_ms: int = 0
 
 
 class RunSummary(BaseModel):
@@ -45,6 +68,8 @@ class RunSummary(BaseModel):
 class RunDetail(RunSummary):
     results: List[ApproachResult] = Field(default_factory=list)
     num_runs: int = 3
+    use_docker: bool = True
+    latency_ms: int = 0
 
 
 class SystemStatus(BaseModel):
@@ -55,3 +80,4 @@ class SystemStatus(BaseModel):
     agentcache_service: bool = False
     agentcache_port: int = 8765
     repos: List[str] = Field(default_factory=list)
+    docker_available: bool = False

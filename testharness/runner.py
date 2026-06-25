@@ -8,10 +8,10 @@ port 9419 during a run is attributed to that run.
 Events pushed to the queue are plain dicts; the FastAPI SSE handler
 serialises them to JSON for the browser.
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pygit2
 
@@ -31,12 +31,20 @@ _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from agentcache.config import AgentCacheConfig
-from agentcache.hook import generate_for_commit
-from benchmark.approaches import naive, blobless
-from benchmark.approaches import agentcache as ac_approach
-from .models import ApproachResult, PhaseBreakdown
-from .proxy import ByteCountingProxy
+from agentcache.config import AgentCacheConfig  # noqa: E402
+from agentcache.hook import generate_for_commit  # noqa: E402
+from benchmark.approaches import naive, blobless  # noqa: E402
+from benchmark.approaches import agentcache as ac_approach  # noqa: E402
+from .agent_task import run_agent_task  # noqa: E402
+from .docker_runner import ensure_image, is_docker_available, run_in_container  # noqa: E402
+from .metrics import CpuSampler, merge_timeseries  # noqa: E402
+from .models import AgentTaskMetrics, ApproachResult, PhaseBreakdown, TimeseriesPoint  # noqa: E402
+from .proxy import ByteCountingProxy  # noqa: E402
+
+try:
+    import psutil
+except ImportError:
+    psutil = None  # type: ignore
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bench")
 
@@ -61,11 +69,13 @@ class TestRunner:
         repos_dir: str,
         git_proxy_port: int,
         agentcache_port: int = 8765,
+        symbol: str = "ClassDef",
     ) -> None:
         self.proxy = proxy
         self.repos_dir = os.path.abspath(repos_dir)
         self.git_proxy_port = git_proxy_port
         self.agentcache_url = f"http://127.0.0.1:{agentcache_port}"
+        self.symbol = symbol
 
         # Active SSE queues keyed by run_id.
         self._queues: Dict[str, asyncio.Queue] = {}
@@ -103,7 +113,7 @@ class TestRunner:
         generate_for_commit(repo, commit_hex, cfg)
 
     # ------------------------------------------------------------------
-    # Individual approach execution
+    # Individual approach execution (non-docker fallback)
     # ------------------------------------------------------------------
 
     def _run_naive(
@@ -149,6 +159,8 @@ class TestRunner:
         target_paths: List[str],
         approaches: List[str],
         num_runs: int,
+        use_docker: bool = True,
+        latency_ms: int = 0,
     ) -> List[ApproachResult]:
         """
         Run all requested approaches and return aggregated results.
@@ -184,59 +196,174 @@ class TestRunner:
             self._log(run_id, "Cache ready.")
 
         # ---------------------------------------------------------------
+        # Docker availability check + image prep
+        # ---------------------------------------------------------------
+        docker_ok = use_docker and is_docker_available()
+        if docker_ok:
+            self._log(run_id, "Docker available — using containerised runs.")
+            try:
+                image_ok = await _in_thread(
+                    ensure_image, lambda msg: self._log(run_id, msg)
+                )
+                if not image_ok:
+                    self._log(
+                        run_id,
+                        "WARNING: Docker image build failed — falling back to local runs.",
+                    )
+                    docker_ok = False
+            except Exception as e:
+                self._log(
+                    run_id,
+                    f"WARNING: Docker image prep error: {e} — falling back to local runs.",
+                )
+                docker_ok = False
+        else:
+            if use_docker and not is_docker_available():
+                self._log(
+                    run_id,
+                    "Docker not available — running locally (no container isolation).",
+                )
+
+        # Apply latency setting to proxy
+        self.proxy.set_latency(latency_ms)
+        if latency_ms:
+            self._log(run_id, f"Latency injection: {latency_ms}ms per connection.")
+
+        # ---------------------------------------------------------------
         # Run each approach
         # ---------------------------------------------------------------
         results: List[ApproachResult] = []
 
-        for approach in approaches:
-            self._emit(run_id, "approach_start", approach=approach, total_runs=num_runs)
-            run_metrics: List[Dict[str, Any]] = []
+        try:
+            for approach in approaches:
+                self._emit(
+                    run_id, "approach_start", approach=approach, total_runs=num_runs
+                )
+                run_metrics: List[Dict[str, Any]] = []
 
-            for i in range(num_runs):
-                self._log(run_id, f"[{approach}] run {i+1}/{num_runs}…")
-                snap = self.proxy.snapshot()
-                t0 = time.monotonic()
+                for i in range(num_runs):
+                    self._log(run_id, f"[{approach}] run {i + 1}/{num_runs}…")
+                    snap = self.proxy.snapshot()
+                    t0 = time.monotonic()
 
-                try:
-                    with tempfile.TemporaryDirectory(prefix="bench-") as wd:
-                        if approach == "naive":
+                    try:
+                        if docker_ok:
                             raw = await _in_thread(
-                                self._run_naive, repo_url, branch, target_paths, wd
+                                run_in_container,
+                                approach,
+                                repo_url,
+                                commit_hex,
+                                branch,
+                                target_paths,
+                                self.agentcache_url,
+                                self.symbol,
                             )
-                        elif approach == "blobless":
-                            raw = await _in_thread(
-                                self._run_blobless, repo_url, commit_hex, branch, target_paths, wd
-                            )
-                        elif approach == "agentcache":
-                            raw = await _in_thread(
-                                self._run_agentcache, repo_url, commit_hex, branch, target_paths, wd
-                            )
+                            # elapsed from docker run perspective
+                            raw["elapsed_s"] = raw.get("clone_ms", 0.0) / 1000.0
                         else:
-                            raw = {"elapsed_s": 0.0}
+                            with tempfile.TemporaryDirectory(prefix="bench-") as wd:
+                                # Run approach + CPU sampler (pidtree if psutil available)
+                                cpu_samples: List[Dict] = []
 
-                    elapsed = time.monotonic() - t0
-                    delta = self.proxy.delta(snap)
-                    raw["_proxy"] = delta
-                    raw["elapsed_s"] = elapsed
-                    run_metrics.append(raw)
+                                def _on_cpu(t_ms: float, pct: float) -> None:
+                                    cpu_samples.append({"t_ms": t_ms, "cpu_pct": pct})
 
-                    bi = delta["bytes_in"]
-                    bo = delta["bytes_out"]
-                    self._log(
-                        run_id,
-                        f"  → {elapsed:.2f}s  "
-                        f"↑{_fmt_bytes(bi)} ↓{_fmt_bytes(bo)} "
-                        f"({_fmt_bytes(delta['bytes_total'])} total)",
-                    )
+                                sampler: Optional[CpuSampler] = None
+                                if psutil is not None:
+                                    sampler = CpuSampler(
+                                        kind="pidtree",
+                                        root_pid=os.getpid(),
+                                        interval_s=0.2,
+                                        on_sample=_on_cpu,
+                                    )
+                                    sampler.start()
 
-                except Exception as exc:
-                    self._log(run_id, f"  ERROR: {exc}")
-                    run_metrics.append({"error": str(exc), "elapsed_s": 0.0})
+                                try:
+                                    if approach == "naive":
+                                        raw = await _in_thread(
+                                            self._run_naive,
+                                            repo_url,
+                                            branch,
+                                            target_paths,
+                                            wd,
+                                        )
+                                    elif approach == "blobless":
+                                        raw = await _in_thread(
+                                            self._run_blobless,
+                                            repo_url,
+                                            commit_hex,
+                                            branch,
+                                            target_paths,
+                                            wd,
+                                        )
+                                    elif approach == "agentcache":
+                                        raw = await _in_thread(
+                                            self._run_agentcache,
+                                            repo_url,
+                                            commit_hex,
+                                            branch,
+                                            target_paths,
+                                            wd,
+                                        )
+                                    else:
+                                        raw = {"elapsed_s": 0.0}
 
-            # Aggregate across runs
-            result = self._aggregate(approach, run_metrics)
-            self._emit(run_id, "approach_done", approach=approach, result=result.model_dump())
-            results.append(result)
+                                    workspace = os.path.join(wd, "workspace")
+                                    agent_data = await _in_thread(
+                                        run_agent_task,
+                                        approach,
+                                        workspace,
+                                        commit_hex,
+                                        target_paths,
+                                        self.agentcache_url,
+                                        self.symbol,
+                                    )
+                                    raw["agent_task_data"] = agent_data
+                                finally:
+                                    if sampler:
+                                        sampler.stop()
+
+                                raw["cpu_samples"] = cpu_samples
+                                raw["used_docker"] = False
+
+                        elapsed = time.monotonic() - t0
+                        delta = self.proxy.delta(snap)
+                        byte_points = self.proxy.get_timeseries(snap)
+                        ts = merge_timeseries(byte_points, raw.get("cpu_samples", []))
+                        raw["_proxy"] = delta
+                        raw["elapsed_s"] = max(raw.get("elapsed_s", 0.0), elapsed)
+                        raw["_timeseries"] = ts
+                        run_metrics.append(raw)
+
+                        bi = delta["bytes_in"]
+                        bo = delta["bytes_out"]
+                        self._log(
+                            run_id,
+                            f"  → {elapsed:.2f}s  "
+                            f"↑{_fmt_bytes(bi)} ↓{_fmt_bytes(bo)} "
+                            f"({_fmt_bytes(delta['bytes_total'])} total)"
+                            + ("  🐳" if raw.get("used_docker") else ""),
+                        )
+
+                    except Exception as exc:
+                        self._log(run_id, f"  ERROR: {exc}")
+                        run_metrics.append({"error": str(exc), "elapsed_s": 0.0})
+
+                # Aggregate across runs
+                result = self._aggregate(
+                    approach, run_metrics, latency_ms=latency_ms, used_docker=docker_ok
+                )
+                self._emit(
+                    run_id,
+                    "approach_done",
+                    approach=approach,
+                    result=result.model_dump(),
+                )
+                results.append(result)
+
+        finally:
+            # Always reset latency injection
+            self.proxy.set_latency(0)
 
         self._emit(run_id, "run_complete", results=[r.model_dump() for r in results])
         q = self._queues.pop(run_id, None)
@@ -248,13 +375,21 @@ class TestRunner:
     # Aggregation
     # ------------------------------------------------------------------
 
-    def _aggregate(self, approach: str, runs: List[Dict[str, Any]]) -> ApproachResult:
+    def _aggregate(
+        self,
+        approach: str,
+        runs: List[Dict[str, Any]],
+        latency_ms: int = 0,
+        used_docker: bool = False,
+    ) -> ApproachResult:
         good = [r for r in runs if "error" not in r]
         if not good:
             return ApproachResult(
                 approach=approach,
                 elapsed_s=0.0,
                 error=runs[0].get("error", "unknown") if runs else "no runs",
+                latency_ms=latency_ms,
+                used_docker=used_docker,
             )
 
         def avg(key: str, default=0) -> float:
@@ -274,6 +409,29 @@ class TestRunner:
                 fetch_s=avg("phase_fetch_s"),
             )
 
+        # Timeseries: use the median run (by elapsed_s)
+        sorted_runs = sorted(good, key=lambda r: r.get("elapsed_s", 0.0))
+        median_run = sorted_runs[len(sorted_runs) // 2]
+        raw_ts = median_run.get("_timeseries", [])
+        timeseries = [TimeseriesPoint(**p) for p in raw_ts]
+
+        # Agent task metrics: average from median run
+        agent_task: Optional[AgentTaskMetrics] = None
+        at_data = median_run.get("agent_task_data") or median_run.get("agent_task")
+        if at_data and isinstance(at_data, dict) and "error" not in at_data:
+            try:
+                agent_task = AgentTaskMetrics(
+                    symbol_lookup_ms=at_data.get("symbol_lookup_ms", 0.0),
+                    file_read_ms=at_data.get("file_read_ms", 0.0),
+                    network_roundtrips=at_data.get("network_roundtrips", 0),
+                    total_agent_ready_ms=at_data.get("total_agent_ready_ms", 0.0),
+                    grep_cpu_pct=at_data.get("grep_cpu_pct", 0.0),
+                )
+            except Exception:
+                pass
+
+        clone_ms = avg("clone_ms", default=avg("elapsed_s") * 1000.0)
+
         return ApproachResult(
             approach=approach,
             elapsed_s=round(avg("elapsed_s"), 3),
@@ -284,4 +442,9 @@ class TestRunner:
             disk_bytes=int(avg("disk_bytes")),
             file_count=int(avg("file_count")),
             phases=phases,
+            clone_ms=round(clone_ms, 1),
+            timeseries=timeseries,
+            agent_task=agent_task,
+            used_docker=used_docker,
+            latency_ms=latency_ms,
         )

@@ -11,7 +11,7 @@
 </head>
 <body class="h-full text-gray-100" x-data="app()" x-init="init()">
 
-  <!-- ── Top nav ─────────────────────────────────────────────────── -->
+  <!-- ── Top nav ──────────────────────────────────────────────────────────── -->
   <header class="fixed top-0 w-full bg-gray-900 border-b border-gray-800 z-50 px-5 h-12 flex items-center gap-6">
     <span class="font-bold text-indigo-400 tracking-tight">PackCache Harness</span>
 
@@ -35,10 +35,14 @@
         <span :class="status.agentcache_service ? 'bg-green-500':'bg-yellow-500'" class="w-2 h-2 rounded-full"></span>
         agentcache svc
       </span>
+      <span class="flex items-center gap-1">
+        <span :class="status.docker_available ? 'bg-green-500':'bg-gray-600'" class="w-2 h-2 rounded-full"></span>
+        docker
+      </span>
     </div>
   </header>
 
-  <!-- ── Main layout ─────────────────────────────────────────────── -->
+  <!-- ── Main layout ──────────────────────────────────────────────────────── -->
   <div class="flex h-full pt-12">
 
     <!-- Sidebar -->
@@ -74,7 +78,7 @@
     <!-- Main content -->
     <main class="flex-1 overflow-y-auto p-6">
 
-      <!-- ── Dashboard ─────────────────────────────────────────── -->
+      <!-- ── Dashboard ──────────────────────────────────────────────────── -->
       <div x-show="view==='dashboard'">
         <h1 class="text-xl font-semibold mb-1">Dashboard</h1>
         <p class="text-sm text-gray-400 mb-6">
@@ -132,7 +136,7 @@
         </div>
       </div>
 
-      <!-- ── New Test ───────────────────────────────────────────── -->
+      <!-- ── New Test ──────────────────────────────────────────────────── -->
       <div x-show="view==='newtest'">
         <h1 class="text-xl font-semibold mb-6">New Test</h1>
 
@@ -205,6 +209,32 @@
               class="w-32 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
           </div>
 
+          <!-- Latency simulation -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Simulated network latency</label>
+            <select x-model.number="form.latency_ms" class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
+              <option value="0">0 ms — local / same host</option>
+              <option value="5">5 ms — same datacenter</option>
+              <option value="20">20 ms — cross-region (US coast-to-coast)</option>
+              <option value="50">50 ms — cross-region (intercontinental)</option>
+              <option value="150">150 ms — high-latency WAN</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Injected as per-connection delay in the counting proxy</p>
+          </div>
+
+          <!-- Docker toggle -->
+          <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-900 border border-gray-700">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" x-model="form.use_docker" class="rounded border-gray-600">
+              <span class="font-medium text-gray-200">Use Docker containers</span>
+            </label>
+            <div class="text-xs text-gray-500 ml-2">
+              <span x-show="status.docker_available" class="text-green-400">Docker available ✓</span>
+              <span x-show="!status.docker_available" class="text-yellow-500">Docker not detected — will run locally</span>
+              <br>Each run uses a fresh disposable container for true isolation
+            </div>
+          </div>
+
           <!-- Submit -->
           <button @click="startRun()"
             :disabled="!form.repo_name || form.approaches.length===0"
@@ -216,7 +246,7 @@
         </div>
       </div>
 
-      <!-- ── History ────────────────────────────────────────────── -->
+      <!-- ── History ──────────────────────────────────────────────────────── -->
       <div x-show="view==='history'">
         <div class="flex items-center justify-between mb-6">
           <h1 class="text-xl font-semibold">Run History</h1>
@@ -261,13 +291,17 @@
         </div>
       </div>
 
-      <!-- ── Run detail ─────────────────────────────────────────── -->
+      <!-- ── Run detail ──────────────────────────────────────────────────── -->
       <div x-show="view==='run'">
         <div class="flex items-center gap-3 mb-5">
           <button @click="view='history'" class="text-gray-400 hover:text-white text-sm">← History</button>
           <h1 class="text-xl font-semibold" x-text="'Run ' + (currentRun?.run_id ?? '')"></h1>
           <span :class="statusColor(currentRun?.status)" class="text-xs rounded px-1.5 py-0.5 font-medium"
             x-text="currentRun?.status"></span>
+          <!-- Docker / latency badges -->
+          <span x-show="currentRun?.used_docker" class="text-xs text-cyan-400 bg-cyan-900/30 border border-cyan-800 rounded px-1.5 py-0.5">🐳 docker</span>
+          <span x-show="currentRun?.latency_ms > 0" class="text-xs text-yellow-400 bg-yellow-900/30 border border-yellow-800 rounded px-1.5 py-0.5"
+            x-text="'+' + currentRun?.latency_ms + 'ms latency'"></span>
         </div>
 
         <!-- Live log -->
@@ -290,6 +324,42 @@
             <span class="font-semibold text-green-400">agentcache savings:</span>
             <span class="text-green-300 ml-2" x-html="savingsSummary()"></span>
           </div>
+
+          <!-- Time to productive cards -->
+          <template x-if="agentCards().length > 0">
+            <div class="mb-6">
+              <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Time to productive (agent task simulation)</h2>
+              <div class="grid gap-4" :class="agentCards().length === 3 ? 'grid-cols-3' : 'grid-cols-2'">
+                <template x-for="card in agentCards()" :key="card.approach">
+                  <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
+                    <div class="text-xs font-semibold mb-2" :class="approachHeaderColor(card.approach)" x-text="card.approach"></div>
+                    <div class="text-2xl font-bold font-mono text-gray-100 mb-1"
+                      x-text="card.total_ms >= 1000 ? (card.total_ms/1000).toFixed(2)+'s' : card.total_ms.toFixed(0)+'ms'"></div>
+                    <div class="text-xs text-gray-400 mb-2">total agent-ready time</div>
+                    <div class="space-y-1 text-xs text-gray-500">
+                      <div class="flex justify-between">
+                        <span>symbol lookup</span>
+                        <span class="text-gray-300 font-mono" x-text="card.symbol_ms.toFixed(0)+'ms'"></span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>file read</span>
+                        <span class="text-gray-300 font-mono" x-text="card.file_ms.toFixed(0)+'ms'"></span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>net round-trips</span>
+                        <span class="text-gray-300 font-mono" x-text="card.roundtrips"></span>
+                      </div>
+                      <div class="flex justify-between">
+                        <span>grep CPU%</span>
+                        <span class="text-gray-300 font-mono" x-text="card.grep_cpu.toFixed(1)+'%'"></span>
+                      </div>
+                    </div>
+                    <div x-show="card.used_docker" class="mt-2 text-xs text-cyan-500">🐳 isolated container</div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
 
           <!-- Metric table -->
           <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Comparison</h2>
@@ -326,8 +396,8 @@
             </table>
           </div>
 
-          <!-- Charts -->
-          <div class="grid grid-cols-2 gap-4 mb-6">
+          <!-- Charts row 1: time + bytes -->
+          <div class="grid grid-cols-2 gap-4 mb-4">
             <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
               <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Wall time (seconds)</h3>
               <canvas id="chartTime" height="180"></canvas>
@@ -335,6 +405,24 @@
             <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
               <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Network bytes (proxy)</h3>
               <canvas id="chartBytes" height="180"></canvas>
+            </div>
+          </div>
+
+          <!-- Phase timeline (horizontal stacked bar) -->
+          <div class="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4" x-show="agentCards().length > 0">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Phase timeline: clone + agent work (ms)</h3>
+            <canvas id="chartPhase" height="100"></canvas>
+          </div>
+
+          <!-- CPU + Network timeseries row -->
+          <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
+              <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">CPU over time</h3>
+              <canvas id="chartCpu" height="160"></canvas>
+            </div>
+            <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
+              <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Network rate over time</h3>
+              <canvas id="chartNet" height="160"></canvas>
             </div>
           </div>
 

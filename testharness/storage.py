@@ -10,6 +10,8 @@ Schema
     branch      TEXT
     config_json TEXT  full RunConfig as JSON
     results_json TEXT | NULL   list[ApproachResult] as JSON
+    use_docker  INTEGER NOT NULL DEFAULT 1
+    latency_ms  INTEGER NOT NULL DEFAULT 0
 
 Smart queries:
   - list_runs() returns newest-first summary rows (no heavy JSON)
@@ -18,11 +20,14 @@ Smart queries:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .models import ApproachResult, RunConfig, RunDetail, RunSummary
+
+log = logging.getLogger(__name__)
 
 
 class ResultStorage:
@@ -48,13 +53,33 @@ class ResultStorage:
                     target_paths TEXT NOT NULL,   -- JSON array
                     approaches   TEXT NOT NULL,   -- JSON array
                     num_runs     INTEGER NOT NULL DEFAULT 3,
-                    results_json TEXT
+                    results_json TEXT,
+                    use_docker   INTEGER NOT NULL DEFAULT 1,
+                    latency_ms   INTEGER NOT NULL DEFAULT 0
                 )
             """)
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_runs_created
                 ON runs (created_at DESC)
             """)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add new columns to existing databases that pre-date them."""
+        migrations = [
+            ("use_docker", "ALTER TABLE runs ADD COLUMN use_docker INTEGER NOT NULL DEFAULT 1"),
+            ("latency_ms", "ALTER TABLE runs ADD COLUMN latency_ms INTEGER NOT NULL DEFAULT 0"),
+        ]
+        with self._conn() as conn:
+            # Get existing column names
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+            for col_name, ddl in migrations:
+                if col_name not in cols:
+                    try:
+                        conn.execute(ddl)
+                        log.info("storage: migrated — added column %s", col_name)
+                    except Exception as e:
+                        log.warning("storage: migration failed for %s: %s", col_name, e)
 
     # ------------------------------------------------------------------
     # Writers
@@ -66,8 +91,8 @@ class ResultStorage:
                 """
                 INSERT INTO runs
                   (run_id, created_at, status, repo_name, branch,
-                   target_paths, approaches, num_runs)
-                VALUES (?, ?, 'running', ?, ?, ?, ?, ?)
+                   target_paths, approaches, num_runs, use_docker, latency_ms)
+                VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -77,6 +102,8 @@ class ResultStorage:
                     json.dumps(config.target_paths),
                     json.dumps(config.approaches),
                     config.num_runs,
+                    int(config.use_docker),
+                    config.latency_ms,
                 ),
             )
 
@@ -135,7 +162,25 @@ class ResultStorage:
         results: List[ApproachResult] = []
         if row["results_json"]:
             for item in json.loads(row["results_json"]):
-                results.append(ApproachResult(**item))
+                try:
+                    results.append(ApproachResult(**item))
+                except Exception:
+                    # Tolerate old-style dicts missing new fields (graceful degradation)
+                    results.append(ApproachResult(approach=item.get("approach", "?"),
+                                                  elapsed_s=item.get("elapsed_s", 0.0),
+                                                  **{k: v for k, v in item.items()
+                                                     if k not in ("approach", "elapsed_s")}))
+
+        # use_docker / latency_ms may be absent from old rows
+        try:
+            use_docker = bool(row["use_docker"])
+        except (IndexError, KeyError):
+            use_docker = True
+        try:
+            latency_ms = int(row["latency_ms"])
+        except (IndexError, KeyError):
+            latency_ms = 0
+
         return RunDetail(
             run_id=row["run_id"],
             created_at=row["created_at"],
@@ -146,6 +191,8 @@ class ResultStorage:
             approaches=json.loads(row["approaches"]),
             num_runs=row["num_runs"],
             results=results,
+            use_docker=use_docker,
+            latency_ms=latency_ms,
         )
 
     def get_stats(self) -> Dict[str, Any]:
