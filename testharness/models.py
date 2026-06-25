@@ -26,6 +26,7 @@ class PhaseBreakdown(BaseModel):
 
 class RealAgentMetrics(BaseModel):
     agentcache_detected: bool = False
+    bundle_used: bool = False
     files_found: int = 0
     files_selected: int = 0
     files_fetched: int = 0

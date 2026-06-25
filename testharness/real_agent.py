@@ -266,9 +266,16 @@ def run_real_agent(
             )
             oids = resolved.get("fetch_oids", []) if resolved else []
             if oids:
+                # --no-tags is critical: without it, `git fetch` does tag
+                # auto-following, which forces a negotiation over EVERY ref the
+                # server advertises.  On a mirror of a busy GitHub repo that's
+                # tens of thousands of refs/pull/* refs — ~5 MiB of pure ref
+                # advertisement for what should be a ~20 KiB blob fetch.  We
+                # already know the exact OIDs we want; we never need tags.
                 _git(
                     "-c", "remote.origin.partialclonefilter=",
-                    "fetch", "origin", *oids,
+                    "fetch", "--no-tags", "--no-write-fetch-head",
+                    "origin", *oids,
                     cwd=clone_dir, timeout=120,
                 )
                 metrics["fetch_roundtrips"] = 1
@@ -312,28 +319,90 @@ def run_real_agent(
         metrics["comments_modified"] = n_modified
         metrics["phase_edit_ms"] = round((time.monotonic() - t3) * 1000, 1)
 
-        # ── Phase 6: Commit ────────────────────────────────────────
+        # ── Phase 6: Commit (ZERO network) ─────────────────────────
+        #
+        # GOAL: record the agent's edits while pulling NOTHING from the server.
+        #
+        # The naive `git add` / `git commit` porcelain is a trap on a
+        # --no-checkout blobless clone: porcelain refreshes the index against
+        # the working tree, and to diff the 5778 files that exist in HEAD's
+        # tree but NOT in our sparse working tree, git lazily fetches their
+        # blobs from the promisor — ~44 MB for CPython.  That download has
+        # nothing to do with the agent's actual change; it's an artifact of
+        # git trying to produce a "complete" commit.
+        #
+        # Instead we build the commit with pure plumbing in a SEPARATE index
+        # that contains ONLY the files we changed:
+        #
+        #   git hash-object -w <file>          → write new blob locally (0 net)
+        #   git update-index --add --cacheinfo → stage into a scratch index
+        #   git write-tree                     → tree of just our files (0 net)
+        #   git commit-tree -p HEAD            → commit object, no diff (0 net)
+        #   git update-ref HEAD                → move the branch (0 net)
+        #
+        # The resulting commit's tree contains only the edited files; the rest
+        # of the project is "orphaned" relative to this commit.  That is an
+        # ACCEPTED tradeoff: the agent's job is to apply and record its change
+        # with minimal network impact on the disposable VM, not to preserve a
+        # pristine full-tree snapshot.  GIT_NO_LAZY_FETCH=1 guarantees that if
+        # any step *would* hit the network, it fails loudly instead.
         t4 = time.monotonic()
         if n_modified > 0:
-            _git("config", "user.email", "agent@packcache", cwd=clone_dir)
-            _git("config", "user.name", "PackCache Real Agent", cwd=clone_dir)
-            # Stage ONLY the modified files — not `git add -u` which in a
-            # --no-checkout blobless clone would see all 5801 other files as
-            # "deleted" and try to stage (and download) the entire repo.
-            modified = [p for p in selected if os.path.exists(os.path.join(clone_dir, p))]
-            _git("add", "--", *modified, cwd=clone_dir, timeout=30)
-            _git(
-                "commit", "-m",
-                (
-                    f"agent({approach}): add ! to {n_modified} comment(s)\n\n"
-                    f"approach={approach} agentcache={metrics['agentcache_detected']} "
-                    f"seed={seed} pct={pct}%"
-                ),
-                cwd=clone_dir,
-                timeout=30,
+            env = dict(os.environ)
+            env["GIT_NO_LAZY_FETCH"] = "1"
+            scratch_index = os.path.join(work_dir, "agent-commit-index")
+            env["GIT_INDEX_FILE"] = scratch_index
+            if os.path.exists(scratch_index):
+                os.remove(scratch_index)
+
+            modified = [
+                p for p in selected
+                if os.path.exists(os.path.join(clone_dir, p))
+            ]
+
+            for path in modified:
+                blob = subprocess.run(
+                    ["git", "hash-object", "-w", path],
+                    capture_output=True, text=True, cwd=clone_dir,
+                    timeout=30, check=True, env=env,
+                ).stdout.strip()
+                subprocess.run(
+                    ["git", "update-index", "--add",
+                     "--cacheinfo", f"100644,{blob},{path}"],
+                    capture_output=True, text=True, cwd=clone_dir,
+                    timeout=30, check=True, env=env,
+                )
+
+            tree = subprocess.run(
+                ["git", "write-tree"],
+                capture_output=True, text=True, cwd=clone_dir,
+                timeout=30, check=True, env=env,
+            ).stdout.strip()
+
+            parent = _git("rev-parse", "HEAD", cwd=clone_dir).stdout.strip()
+            message = (
+                f"agent({approach}): add ! to {n_modified} comment(s)\n\n"
+                f"approach={approach} agentcache={metrics['agentcache_detected']} "
+                f"bundle={metrics['bundle_used']} seed={seed} pct={pct}%\n"
+                f"NOTE: partial-tree commit (only edited files) to keep the "
+                f"agent's network footprint at zero."
             )
-            sha = _git("rev-parse", "HEAD", cwd=clone_dir)
-            metrics["commit_sha"] = sha.stdout.strip()
+            commit = subprocess.run(
+                ["git", "commit-tree", tree, "-p", parent, "-m", message],
+                capture_output=True, text=True, cwd=clone_dir,
+                timeout=30, check=True,
+                env={**env, "GIT_AUTHOR_NAME": "PackCache Real Agent",
+                     "GIT_AUTHOR_EMAIL": "agent@packcache",
+                     "GIT_COMMITTER_NAME": "PackCache Real Agent",
+                     "GIT_COMMITTER_EMAIL": "agent@packcache"},
+            ).stdout.strip()
+
+            subprocess.run(
+                ["git", "update-ref", "HEAD", commit],
+                capture_output=True, text=True, cwd=clone_dir,
+                timeout=30, check=True, env=env,
+            )
+            metrics["commit_sha"] = commit
 
         metrics["phase_commit_ms"] = round((time.monotonic() - t4) * 1000, 1)
 

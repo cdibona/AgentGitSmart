@@ -460,6 +460,7 @@ class TestRunner:
             try:
                 real_agent = RealAgentMetrics(
                     agentcache_detected=ra_data.get("agentcache_detected", False),
+                    bundle_used=ra_data.get("bundle_used", False),
                     files_found=ra_data.get("files_found", 0),
                     files_selected=ra_data.get("files_selected", 0),
                     files_fetched=ra_data.get("files_fetched", 0),
