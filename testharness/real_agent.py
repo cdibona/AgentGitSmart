@@ -1,5 +1,5 @@
 """
-PackCache Real Agent — stdlib-only.
+AgentCache Real Agent — stdlib-only.
 
 Task: Add a '!' to one comment line in 1% of the project's Python files,
 then commit the change locally (no push — we benchmark the COST of
@@ -479,10 +479,10 @@ def run_real_agent(
                 ["git", "commit-tree", tree, "-p", parent, "-m", message],
                 capture_output=True, text=True, cwd=clone_dir,
                 timeout=30, check=True,
-                env={**env, "GIT_AUTHOR_NAME": "PackCache Real Agent",
-                     "GIT_AUTHOR_EMAIL": "agent@packcache",
-                     "GIT_COMMITTER_NAME": "PackCache Real Agent",
-                     "GIT_COMMITTER_EMAIL": "agent@packcache"},
+                env={**env, "GIT_AUTHOR_NAME": "AgentCache Real Agent",
+                     "GIT_AUTHOR_EMAIL": "agent@agentcache",
+                     "GIT_COMMITTER_NAME": "AgentCache Real Agent",
+                     "GIT_COMMITTER_EMAIL": "agent@agentcache"},
             ).stdout.strip()
 
             subprocess.run(

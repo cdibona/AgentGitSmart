@@ -149,5 +149,5 @@ need or that are too large to be useful in a context window.
 ---
 
 *This file was generated from the
-[agentcache adopter template](https://github.com/cdibona/PackCache/blob/main/docs/ADOPTER_AGENTS_TEMPLATE.md).
+[agentcache adopter template](https://github.com/cdibona/AgentCache/blob/main/docs/ADOPTER_AGENTS_TEMPLATE.md).
 See that repo for the full agentcache documentation.*

@@ -1,6 +1,6 @@
 name: agentcache
 
-# Dogfooding: PackCache uses agentcache on itself.  GitHub doesn't run
+# Dogfooding: AgentCache uses agentcache on itself.  GitHub doesn't run
 # server-side post-receive hooks, so we do the equivalent in CI — generate the
 # per-commit agent-knowledge cache (manifest + symbols + bundle) and publish it
 # so coding agents and Actions can cold-start against this repo without cloning

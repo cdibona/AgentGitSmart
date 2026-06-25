@@ -1,4 +1,4 @@
-/* PackCache Test Harness — Alpine.js frontend */
+/* AgentCache Test Harness — Alpine.js frontend */
 
 const APPROACH_COLORS = {
   naive:      { bg: '#3b82f6', border: '#1d4ed8' },

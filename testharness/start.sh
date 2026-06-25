@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # testharness/start.sh
 #
-# One-command startup for the PackCache Test Harness.
+# One-command startup for the AgentCache Test Harness.
 #
 # Starts:
 #   - git daemon          port 9418  (serves benchmark/repos/)
@@ -72,7 +72,7 @@ export AGENTCACHE_WEB_PORT="$WEB_PORT"
 
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  PackCache Test Harness"
+echo "  AgentCache Test Harness"
 echo "  http://127.0.0.1:${WEB_PORT}"
 echo ""
 echo "  git daemon  → port 9418"

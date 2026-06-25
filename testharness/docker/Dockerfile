@@ -4,6 +4,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 RUN git config --global protocol.allow always \
  && git config --global init.defaultBranch main \
- && git config --global user.email "agent@packcache" \
- && git config --global user.name "PackCache Agent"
+ && git config --global user.email "agent@agentcache" \
+ && git config --global user.name "AgentCache Agent"
 WORKDIR /pack

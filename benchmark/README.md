@@ -28,7 +28,7 @@ No setup required.  Spins up an in-process fixture repo, generates the
 cache, starts the service, and benchmarks all three approaches:
 
 ```bash
-cd /path/to/PackCache
+cd /path/to/AgentCache
 .venv/bin/python -m benchmark.run --smoke
 ```
 

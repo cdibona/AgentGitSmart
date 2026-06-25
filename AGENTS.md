@@ -1,4 +1,4 @@
-# Agent Instructions — PackCache / agentcache
+# Agent Instructions — AgentCache / agentcache
 
 ## This repo is agentcache-enabled (service-less / side-ref mode)
 
@@ -27,7 +27,7 @@
 
 ---
 
-> **This file is for AI agents working on the PackCache codebase.**
+> **This file is for AI agents working on the AgentCache codebase.**
 > If you are an agent working on a *different* repo that happens to use
 > agentcache as its server-side cache, see that repo's own `AGENTS.md`
 > instead — it will tell you how to do an efficient cold start there.

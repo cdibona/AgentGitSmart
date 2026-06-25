@@ -54,7 +54,7 @@ server-side).
 **3. Point your agent at it.** In any coding-agent session (Claude Code, Codex
 CLI, Amplifier, Cursor, …), paste:
 
-> Read https://raw.githubusercontent.com/cdibona/PackCache/main/README.md and
+> Read https://raw.githubusercontent.com/cdibona/AgentCache/main/README.md and
 > follow the **"If you've been sent by a human"** section to use agentcache for
 > this repo instead of a full clone.
 
@@ -69,7 +69,7 @@ point. Instead, do a cold start that fetches only the blobs you will actually
 read:
 
 ```bash
-# 0. Discover the service. A PackCache-enabled repo advertises it in one of:
+# 0. Discover the service. A AgentCache-enabled repo advertises it in one of:
 #      .agentcache        →  grep service_url .agentcache
 #      AGENTS.md          →  the cold-start protocol + service URL
 #    SVC = the agentcache service URL,  REPO_URL = the git remote,  COMMIT = HEAD
@@ -226,7 +226,7 @@ that, PRs "just work."
 
 ## This repo dogfoods agentcache
 
-PackCache uses agentcache **on itself**. GitHub doesn't run server-side
+AgentCache uses agentcache **on itself**. GitHub doesn't run server-side
 `post-receive` hooks, so [`.github/workflows/agentcache.yml`](.github/workflows/agentcache.yml)
 does the equivalent in CI: on every push to `main` it runs
 [`scripts/generate_agentcache.py`](scripts/generate_agentcache.py), builds the

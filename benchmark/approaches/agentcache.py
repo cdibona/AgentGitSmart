@@ -1,4 +1,4 @@
-"""Approach C — the PackCache flow.
+"""Approach C — the AgentCache flow.
 
 Three phases:
   1. Blobless clone seeded by a bootstrap bundle (optional), or just
@@ -64,7 +64,7 @@ def run(
     work_dir: str,
     bundle_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """PackCache cold start: blobless clone → resolve → targeted fetch.
+    """AgentCache cold start: blobless clone → resolve → targeted fetch.
 
     Parameters
     ----------

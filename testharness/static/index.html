@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PackCache Test Harness</title>
+  <title>AgentCache Test Harness</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -14,7 +14,7 @@
 
   <!-- ── Top nav ──────────────────────────────────────────────────────────── -->
   <header class="fixed top-0 w-full bg-gray-900 border-b border-gray-800 z-50 px-5 h-12 flex items-center gap-6">
-    <span class="font-bold text-indigo-400 tracking-tight">PackCache Harness</span>
+    <span class="font-bold text-indigo-400 tracking-tight">AgentCache Harness</span>
 
     <nav class="flex gap-4 text-sm">
       <button @click="view='dashboard'" :class="view==='dashboard'?'text-white':'text-gray-400 hover:text-white'">Dashboard</button>
@@ -84,7 +84,7 @@
       <div x-show="view==='dashboard'">
         <h1 class="text-xl font-semibold mb-1">Dashboard</h1>
         <p class="text-sm text-gray-400 mb-6">
-          Compare PackCache's agentcache approach against naive and blobless cloning.
+          Compare AgentCache's agentcache approach against naive and blobless cloning.
           All traffic is routed through the counting proxy — no public repos are touched.
         </p>
 

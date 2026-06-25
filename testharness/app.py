@@ -165,7 +165,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="PackCache Test Harness", lifespan=lifespan)
+app = FastAPI(title="AgentCache Test Harness", lifespan=lifespan)
 
 # Mount static files
 _STATIC_DIR = _HERE / "static"
