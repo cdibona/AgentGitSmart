@@ -80,6 +80,8 @@ def run_in_container(
     use_real_agent: bool = False,
     agent_pct: float = 1.0,
     agent_seed: int = 42,
+    use_bundle: bool = True,
+    wait_timeout: int = 600,
 ) -> dict:
     """
     Run one approach in a fresh container. Returns:
@@ -103,6 +105,8 @@ def run_in_container(
             "--pct", str(agent_pct),
             "--seed", str(agent_seed),
         ]
+        if not use_bundle:
+            cmd.append("--no-bundle")
     else:
         target_args = []
         for p in target_paths:

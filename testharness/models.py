@@ -105,6 +105,7 @@ class ExperimentConfig(BaseModel):
     seed: int = 1000
     human_commits: int = 0          # teammate commits to interleave (one per gap between agent passes)
     hook_warms: bool = True         # does the server hook pre-warm the new commit's cache?
+    use_docker: bool = True         # run each pass in a fresh disposable container (default)
 
 
 class SystemStatus(BaseModel):

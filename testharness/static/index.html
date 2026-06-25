@@ -408,6 +408,19 @@
               </label>
             </div>
 
+            <div class="border-t border-gray-700 pt-3">
+              <label class="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" x-model="exp.use_docker" class="rounded border-gray-600">
+                <span class="text-gray-200">Run each pass in a fresh container 🐳</span>
+              </label>
+              <p class="text-xs text-gray-500 mt-1">
+                Default. Every pass runs in a disposable Docker container (true VM-like isolation);
+                all traffic still flows through the counting proxy and CPU is sampled.
+                <span x-show="status.docker_available" class="text-green-400">Docker detected ✓</span>
+                <span x-show="!status.docker_available" class="text-yellow-500">Docker not detected — will run on host.</span>
+              </p>
+            </div>
+
             <button @click="startExperiment()"
               :disabled="exp.repos.length===0 || exp.methods.length===0 || expRunning"
               class="w-full py-2 px-4 rounded bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:cursor-not-allowed font-semibold text-sm transition">
@@ -540,10 +553,12 @@
                               <td class="px-2 py-1 text-right font-mono text-gray-500" x-text="Math.round(p.cells?.[m]?.phase_clone_ms||0)+'ms'"></td>
                               <td class="px-2 py-1 text-right font-mono text-gray-500" x-text="Math.round(p.cells?.[m]?.phase_discover_ms||0)+'ms'"></td>
                               <td class="px-2 py-1 text-right font-mono text-gray-500" x-text="Math.round(p.cells?.[m]?.phase_fetch_ms||0)+'ms'"></td>
-                              <td class="px-2 py-1 text-center">
+                              <td class="px-2 py-1 text-center whitespace-nowrap">
                                 <span x-show="m==='agentcache' && p.cells?.[m]?.cold" class="text-amber-400" title="cold: no cache, no bundle">❄ cold</span>
                                 <span x-show="m==='agentcache' && !p.cells?.[m]?.cold" class="text-green-500" title="warm: cache + bundle present">✓ warm</span>
                                 <span x-show="m==='agentcache' && p.cells?.[m]?.bundle_used" class="text-indigo-400 ml-1" title="seeded from CDN bundle">📦</span>
+                                <span x-show="p.cells?.[m]?.used_docker" class="ml-1" title="ran in a fresh container">🐳</span>
+                                <span x-show="p.cells?.[m]?.cpu_pct > 0" class="text-gray-500 ml-1" x-text="'cpu '+Math.round(p.cells?.[m]?.cpu_pct)+'%'"></span>
                                 <span x-show="p.cells?.[m]?.error" class="text-red-400" x-text="'err'"></span>
                               </td>
                             </tr>

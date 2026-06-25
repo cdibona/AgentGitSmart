@@ -36,6 +36,7 @@ from typing import Callable, Optional
 
 import pygit2
 
+from . import docker_runner
 from .real_agent import run_real_agent
 from agentcache import uninstall as uninstall_mod
 from agentcache.config import AgentCacheConfig
@@ -100,7 +101,7 @@ class ExperimentRunner:
     # ── the measured agent pass ────────────────────────────────────────
     async def _agent_pass(
         self, repo: str, repo_dir: str, branch: str, commit: str,
-        method: str, seed: int, pct: float,
+        method: str, seed: int, pct: float, use_docker: bool,
     ) -> dict:
         if method == "agentcache":
             await self.svc.switch_repo(repo_dir)
@@ -110,21 +111,50 @@ class ExperimentRunner:
         # CDN bundle either, so agentcache must pull full history through the
         # network — the real first-visit cost.  Only warm passes get the bundle.
         use_bundle = not cold
+        loop = asyncio.get_event_loop()
+
         snap = self.proxy.snapshot()
         t0 = time.monotonic()
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: run_real_agent(
-                approach=method,
-                repo_url=self.repo_url(repo),
-                commit=commit,
-                branch=branch,
-                service_url=self.service_url(),
-                pct=pct,
-                seed=seed,
-                use_bundle=use_bundle,
-            ),
-        )
+        cpu_pct = 0.0
+        used_docker = False
+        if use_docker:
+            # Fresh, disposable container per pass — true process/fs isolation.
+            # --network=host keeps the clone/fetch flowing through the counting
+            # proxy, so bytes are still measured; CPU is sampled via cgroups.
+            payload = await loop.run_in_executor(
+                None,
+                lambda: docker_runner.run_in_container(
+                    approach=method,
+                    repo_url=self.repo_url(repo),
+                    commit=commit,
+                    branch=branch,
+                    target_paths=[],
+                    service_url=self.service_url(),
+                    symbol="",
+                    use_real_agent=True,
+                    agent_pct=pct,
+                    agent_seed=seed,
+                    use_bundle=use_bundle,
+                ),
+            )
+            result = payload.get("real_agent_data", payload) or {}
+            samples = payload.get("cpu_samples", []) or []
+            cpu_pct = round(max((s[1] for s in samples), default=0.0), 1)
+            used_docker = True
+        else:
+            result = await loop.run_in_executor(
+                None,
+                lambda: run_real_agent(
+                    approach=method,
+                    repo_url=self.repo_url(repo),
+                    commit=commit,
+                    branch=branch,
+                    service_url=self.service_url(),
+                    pct=pct,
+                    seed=seed,
+                    use_bundle=use_bundle,
+                ),
+            )
         wall = time.monotonic() - t0
         delta = self.proxy.delta(snap)
         return {
@@ -138,6 +168,8 @@ class ExperimentRunner:
             "files_found": result.get("files_found", 0),
             "files_selected": result.get("files_selected", 0),
             "modified": result.get("files_modified", 0),
+            "cpu_pct": cpu_pct,
+            "used_docker": used_docker,
             "phase_clone_ms": round(result.get("phase_clone_ms", 0.0), 1),
             "phase_discover_ms": round(result.get("phase_discover_ms", 0.0), 1),
             "phase_fetch_ms": round(result.get("phase_fetch_ms", 0.0), 1),
@@ -201,6 +233,7 @@ class ExperimentRunner:
         seed0 = config["seed"]
         human_commits = int(config.get("human_commits", 0) or 0)
         hook_warms = config["hook_warms"]
+        use_docker = bool(config.get("_use_docker", False))
         exp_id = config["_exp_id"]
 
         # Start every campaign from a clean (cold) cache.
@@ -236,7 +269,7 @@ class ExperimentRunner:
             cells = {}
             for method in methods:
                 cell = await self._agent_pass(
-                    repo, repo_dir, branch, commit, method, seed0 + i, pct
+                    repo, repo_dir, branch, commit, method, seed0 + i, pct, use_docker
                 )
                 cells[method] = cell
                 tag = "COLD" if cell["cold"] else ""
@@ -278,6 +311,28 @@ class ExperimentRunner:
     async def run(self, exp_id: str, config: dict, emit: Callable[[str], None]) -> dict:
         config = dict(config)
         config["_exp_id"] = exp_id
+
+        # Resolve container isolation: requested AND docker available AND image
+        # builds.  Otherwise degrade gracefully to host execution (still fully
+        # measured through the proxy) and say so in the log.
+        want_docker = bool(config.get("use_docker", True))
+        use_docker = False
+        if want_docker:
+            if docker_runner.is_docker_available():
+                emit("Docker available — building/checking agent image…")
+                ok = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: docker_runner.ensure_image(emit)
+                )
+                use_docker = bool(ok)
+                emit("Each pass will run in a FRESH disposable container 🐳"
+                     if use_docker else
+                     "Docker image unavailable — running on host (still proxy-measured).")
+            else:
+                emit("Docker not available — running on host (still proxy-measured).")
+        else:
+            emit("Container isolation disabled — running on host (still proxy-measured).")
+        config["_use_docker"] = use_docker
+
         campaigns = []
         for repo in config["repos"]:
             try:

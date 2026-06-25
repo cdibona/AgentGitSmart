@@ -29,6 +29,8 @@ def main() -> int:
     p.add_argument("--service-url", default="http://127.0.0.1:8765")
     p.add_argument("--pct", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--no-bundle", action="store_true",
+                   help="Skip the CDN bundle (honest cold first-visit cost).")
     args = p.parse_args()
 
     try:
@@ -40,6 +42,7 @@ def main() -> int:
             service_url=args.service_url,
             pct=args.pct,
             seed=args.seed,
+            use_bundle=not args.no_bundle,
         )
         payload = {"result": metrics, "used_docker": True}
         sys.stdout.write(f"\n{_START}{json.dumps(payload)}{_END}\n")

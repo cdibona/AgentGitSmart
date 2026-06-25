@@ -52,6 +52,7 @@ function app() {
       seed: 1000,
       human_commits: 0,
       hook_warms: true,
+      use_docker: true,
     },
     expRunning: false,
     expError: '',
@@ -179,6 +180,7 @@ function app() {
         seed: Number(this.exp.seed) || 1000,
         human_commits: Math.max(0, Number(this.exp.human_commits) || 0),
         hook_warms: !!this.exp.hook_warms,
+        use_docker: !!this.exp.use_docker,
       };
       let data;
       try {
