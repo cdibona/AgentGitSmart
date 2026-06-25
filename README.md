@@ -188,6 +188,55 @@ ln -s AGENTS.md .github/copilot-instructions.md
 ln -s AGENTS.md .cursorrules
 ```
 
+## How human PRs don't break the cache
+
+A reasonable worry: *if agents rely on this cache, won't an ordinary teammate
+who opens a PR — and has never heard of agentcache — break it?*
+
+**No. agentcache is designed so that humans never have to know it exists.**
+
+- **The cache is generated server-side, not client-side.** It's built by the
+  `post-receive` hook (self-hosted) or a CI workflow (GitHub) when commits
+  land. A contributor pushes or merges a PR exactly as they always have; the
+  cache for the new commit is (re)built automatically. Nobody runs anything
+  special, and there is nothing to forget.
+- **It's keyed by immutable commit OID and lives in a side ref.** Each commit
+  gets its own `refs/agent-cache/<oid>`, outside `refs/heads/*`. A new commit
+  produces a *new* ref; it never edits an existing one. The cache for commit
+  `A` is correct for `A` forever.
+- **It's append-only and read-only to clients.** Agents *fetch* the side ref;
+  they never push it. A non-agentcache-aware agent (or human) doing a plain
+  clone, edit, and push **cannot corrupt** the cache — there is no shared
+  mutable state to corrupt. We prove this in
+  [`experiments/exp2_taint`](experiments/exp2_taint.py): after aware and
+  *un*aware agents hammer the same repos, every cache ref is byte-identical
+  (verdict: **PRISTINE** on all repos).
+- **A human's merge keeps it current automatically.** When a PR merges to
+  `main`, the hook/CI fires on the new HEAD and produces the cache for it. We
+  prove this in [`experiments/exp3_hook_update`](experiments/exp3_hook_update.py):
+  a teammate with zero agentcache awareness pushes, and the next agent finds an
+  up-to-date cache (verdict: **PASS**).
+- **The hook is fail-open.** If cache generation ever errors, it logs and
+  returns success — it **never blocks a push or a merge**. Worst case, an agent
+  finds no cache for one commit and falls back to a normal blobless fetch.
+
+In short: humans do their normal git workflow; the cache follows along. The only
+thing a maintainer does once is install the hook (or the CI workflow); after
+that, PRs "just work."
+
+## This repo dogfoods agentcache
+
+PackCache uses agentcache **on itself**. GitHub doesn't run server-side
+`post-receive` hooks, so [`.github/workflows/agentcache.yml`](.github/workflows/agentcache.yml)
+does the equivalent in CI: on every push to `main` it runs
+[`scripts/generate_agentcache.py`](scripts/generate_agentcache.py), builds the
+manifest + symbol index (+ a blobless bundle), and publishes
+`refs/agent-cache/<commit>` back to the repo (plus a workflow artifact). The
+[`.agentcache`](.agentcache) file advertises this **service-less, side-ref
+mode**, and [`AGENTS.md`](AGENTS.md) gives agents the exact cold-start. So an
+agent (or a GitHub Action) working on this repo can fetch only the files it
+needs straight from the side ref — no running service required.
+
 ## Try it — the test harness
 
 This repo ships a full benchmarking harness that proves the savings on real
@@ -237,8 +286,29 @@ python -m experiments.exp2_taint         # does a non-aware agent corrupt the ca
 python -m experiments.exp3_hook_update   # does a human push keep the cache current? (yes)
 ```
 
-See [`experiments/results/SUMMARY.md`](experiments/results/SUMMARY.md) for the
-full write-up.
+## Results from this installation
+
+The numbers above and below were produced by running the studies **on this
+installation** — a 15-repo polyglot fleet (cpython, django, go, git, redis,
+openai/codex, anthropic-sdk-python, anthropic-cookbook, jq, bat, ripgrep,
+prettier, ohmyzsh, git-lfs, fd). The raw artifacts are committed in
+[`experiments/results/`](experiments/results/):
+
+- [`SUMMARY.md`](experiments/results/SUMMARY.md) — the full write-up
+- [`exp1_cold_warm.json`](experiments/results/exp1_cold_warm.json) — cold vs warm
+  network bytes per repo × method (the data behind the headline table)
+- [`exp2_taint.json`](experiments/results/exp2_taint.json) — cache isolation:
+  **PRISTINE** on every repo after unaware agents run
+- [`exp3_hook_update.json`](experiments/results/exp3_hook_update.json) — a human
+  push keeps the cache current: **PASS**
+
+**agentcache was the bandwidth winner on all 15 repos** (17×–9,979× less than a
+naive clone) at warm steady state, while still delivering full history in a
+single round-trip. The first (cold) visit to a fresh repo pays full network cost
+— honestly measured — before dropping to the warm numbers shown.
+
+To regenerate them yourself, run the three `experiments.*` commands above (or use
+the **Experiments** tab in the web UI) and the JSON files will be rewritten.
 
 ## Layout
 

@@ -1,19 +1,29 @@
 # Agent Instructions — PackCache / agentcache
 
-## agentcache artifact (if you're in a PackCache-enhanced repo)
+## This repo is agentcache-enabled (service-less / side-ref mode)
 
-> **You are reading the tracked stub.** If this is a PackCache-enabled repo
-> and the service is running, you can get richer, commit-specific instructions
-> without any clone:
+> **If you are an agent about to work on this repo, do NOT clone all of it.**
+> This repository publishes its own agent-knowledge cache on every push to
+> `main` (via `.github/workflows/agentcache.yml`) as a git side ref. There is
+> no hosted query service — read the cache straight from the ref:
 >
 > ```bash
-> curl <AGENTCACHE_SERVICE_URL>/agents.md
+> # blobless clone: full history + trees, ZERO file content
+> git clone --filter=blob:none --no-checkout <REPO_URL> repo && cd repo
+> C=$(git rev-parse HEAD)
+>
+> # fetch the side ref for this commit and read the manifest/symbols
+> git fetch origin "refs/agent-cache/$C:refs/agent-cache/$C"
+> git cat-file -p "refs/agent-cache/$C:manifest.json"   # path -> {oid,size,mode}
+> git cat-file -p "refs/agent-cache/$C:symbols.json"    # symbol -> [{path,line,kind}]
+>
+> # fetch ONLY the blobs you'll actually read, then read them by OID
+> git fetch origin <oid> <oid> ...
+> git cat-file blob <oid>
 > ```
 >
-> The full instructions are stored as an artifact in the orphaned cache commit
-> and served by the agentcache query service.  The tracked AGENTS.md is just
-> a pointer; the artifact has the actual service URL, exact commit, and
-> copy-paste shell snippets.
+> See the README "🤖 If you've been sent by a human" section and `.agentcache`
+> for the machine-readable discovery file.
 
 ---
 
