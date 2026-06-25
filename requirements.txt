@@ -2,3 +2,8 @@ pygit2>=1.15
 Flask>=3.0
 python-dotenv>=1.0
 pytest>=8.0
+
+# Test harness web UI (testharness/) — see also pyproject.toml [harness] extra
+fastapi>=0.111
+uvicorn[standard]>=0.29
+aiofiles>=23

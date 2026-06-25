@@ -15,6 +15,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+harness = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "aiofiles>=23",
+]
 
 [project.scripts]
 agentcache-service   = "agentcache.service:main"
