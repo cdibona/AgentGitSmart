@@ -1,0 +1,23 @@
+{
+  "experiment": "hook_update",
+  "generated_at": "2026-06-25T10:57:37",
+  "branch": "main",
+  "hook_path": "/tmp/exp3-7bntpjr4/repo.git/hooks/post-receive",
+  "verdict": "PASS",
+  "steps": [
+    {
+      "step": "first_push",
+      "new_oid": "1b6df0430ee1330f3ab689745df6ebeaea83da28",
+      "cache_built": true,
+      "edited_path_in_manifest": true,
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/1b6df0430ee1330f3ab689745df6ebeaea83da28 (1 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-7bntpjr4/repo.git\n * [new branch]      HEAD -> main"
+    },
+    {
+      "step": "second_push",
+      "new_oid": "189d1103d37c3baa210d1a1549daa18e7a1a08b6",
+      "cache_built": true,
+      "total_cache_refs": 2,
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/189d1103d37c3baa210d1a1549daa18e7a1a08b6 (2 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-7bntpjr4/repo.git\n   1b6df04..189d110  HEAD -> main"
+    }
+  ]
+}

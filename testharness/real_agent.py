@@ -32,6 +32,12 @@ from typing import Optional
 SEED_DEFAULT = 42
 CLONE_TIMEOUT = 360  # full blobless clone of cpython can take a minute or two
 
+# SHA-1 of a zero-byte file — git's intrinsic "empty blob". Every repo has it
+# for free (e.g. django's many empty __init__.py resolve to it). A server will
+# reject a `want` for it, which would fail an otherwise-valid batch fetch, so we
+# always filter it out of the OID list before fetching.
+EMPTY_BLOB_OID = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+
 # Directories to search for pre-built blobless bootstrap bundles.
 # The bundle CDN path is the key to agentcache's efficiency: the history is
 # seeded from a pre-packaged local/CDN file (NOT through the git daemon),
@@ -96,9 +102,15 @@ def _http_post(url: str, data: dict, timeout: int = 30) -> Optional[dict]:
 
 
 def _detect_agentcache(service_url: str, commit: str) -> Optional[list]:
-    """Return manifest entries if service is reachable, else None."""
+    """Return manifest entries if service is reachable, else None.
+
+    The timeout is generous: the FIRST request for a commit triggers lazy
+    cache generation server-side (manifest + ctags symbol index), which can
+    take several seconds on a large repo.  A tight timeout here would make the
+    agent give up and fall back to the blobless path, masking the cache.
+    """
     data = _http_get(
-        f"{service_url.rstrip('/')}/cache/{commit}/manifest", timeout=5
+        f"{service_url.rstrip('/')}/cache/{commit}/manifest", timeout=120
     )
     return data.get("entries") if (data and "entries" in data) else None
 
@@ -264,21 +276,48 @@ def run_real_agent(
                 {"paths": selected},
                 timeout=60,
             )
-            oids = resolved.get("fetch_oids", []) if resolved else []
+            raw_oids = resolved.get("fetch_oids", []) if resolved else []
+            # Dedupe, and drop the well-known empty-blob OID: it is intrinsic to
+            # every git repo (the SHA of a zero-byte file — e.g. django's many
+            # empty __init__.py), already present locally, and servers reject a
+            # `want` for it, which would fail the entire batch fetch.
+            oids = sorted({o for o in raw_oids if o != EMPTY_BLOB_OID})
             if oids:
-                # --no-tags is critical: without it, `git fetch` does tag
-                # auto-following, which forces a negotiation over EVERY ref the
-                # server advertises.  On a mirror of a busy GitHub repo that's
-                # tens of thousands of refs/pull/* refs — ~5 MiB of pure ref
-                # advertisement for what should be a ~20 KiB blob fetch.  We
-                # already know the exact OIDs we want; we never need tags.
-                _git(
-                    "-c", "remote.origin.partialclonefilter=",
-                    "fetch", "--no-tags", "--no-write-fetch-head",
-                    "origin", *oids,
-                    cwd=clone_dir, timeout=120,
+                # Batch-fetch exactly the blobs we need in ONE round trip.
+                #  - --no-tags is critical: without it `git fetch` does tag
+                #    auto-following, negotiating over EVERY ref the server
+                #    advertises.  On a mirror of a busy GitHub repo that's tens
+                #    of thousands of refs/pull/* refs — ~5 MiB of pure ref
+                #    advertisement for what should be a ~20 KiB blob fetch.
+                #  - We do NOT clear remote.origin.partialclonefilter: on some
+                #    repos (e.g. django) that override actually breaks blob
+                #    materialisation.  An explicit `want <oid>` already bypasses
+                #    the filter for that object.
+                #  - check=False: `git fetch <blob-oid>` can exit non-zero while
+                #    still materialising the blobs (it fails to write FETCH_HEAD
+                #    for a non-commit).  "objects present locally" is the real
+                #    success criterion, which we verify next.
+                subprocess.run(
+                    ["git", "fetch", "--no-tags", "--no-write-fetch-head",
+                     "origin", *oids],
+                    capture_output=True, text=True, cwd=clone_dir, timeout=180,
                 )
                 metrics["fetch_roundtrips"] = 1
+                # Verify materialisation; promisor-fetch any stragglers one by
+                # one (cat-file on a missing promisor object triggers a fetch).
+                missing = [
+                    o for o in oids
+                    if subprocess.run(
+                        ["git", "cat-file", "-e", o],
+                        cwd=clone_dir, capture_output=True,
+                    ).returncode != 0
+                ]
+                for o in missing:
+                    subprocess.run(
+                        ["git", "cat-file", "-p", o],
+                        cwd=clone_dir, capture_output=True, timeout=60,
+                    )
+                    metrics["fetch_roundtrips"] += 1
             # Materialise selected files into the working tree from the
             # now-local blobs (no more network after this).
             _git("checkout", "HEAD", "--", *selected,

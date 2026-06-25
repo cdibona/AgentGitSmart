@@ -36,11 +36,23 @@ def build_manifest(repo: pygit2.Repository, commit_oid: str) -> Dict[str, Any]:
     index = pygit2.Index()
     index.read_tree(tree)
 
+    # gitlink / submodule entries (mode 160000) point at a commit that lives in
+    # *another* repository, so it is NOT in this object store.  Looking it up
+    # would raise KeyError and abort the whole manifest (real repos like git.git
+    # use submodules), so detect them by mode and never dereference them.
+    GITLINK_MODE = 0o160000
+
     entries = []
     for entry in index:
-        obj = repo[entry.id]
-        # Submodule (gitlink) entries point at a commit, not a blob; size is N/A.
-        size = obj.size if isinstance(obj, pygit2.Blob) else None
+        size = None
+        if entry.mode != GITLINK_MODE:
+            try:
+                obj = repo[entry.id]
+                size = obj.size if isinstance(obj, pygit2.Blob) else None
+            except KeyError:
+                # Object genuinely absent locally — be robust, leave size unknown
+                # rather than failing the entire manifest build.
+                size = None
         entries.append(
             {
                 "path": entry.path,

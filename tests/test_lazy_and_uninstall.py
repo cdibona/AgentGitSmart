@@ -63,6 +63,36 @@ def test_lazy_unknown_commit_404(client):
     assert c.get("/cache/%s/manifest" % ("0" * 40)).status_code == 404
 
 
+def test_manifest_handles_gitlink_submodule(repo, cfg):
+    """A gitlink (submodule) entry must not crash manifest building.
+
+    git.git and many real repos carry submodule gitlinks whose commit object
+    lives in another repo and is absent locally; build_manifest must skip the
+    object lookup for mode 160000 instead of raising KeyError.
+    """
+    import pygit2
+
+    from agentcache.manifest import build_manifest
+
+    r, _ = repo
+    # Craft a tree containing a gitlink pointing at an arbitrary (absent) commit.
+    # Use a valid-looking non-null OID — git accepts any SHA for a gitlink and
+    # does NOT require it to exist locally (that's the whole point of the bug).
+    absent_commit = "deadbeef" * 5  # 40 hex chars, not in this repo
+    tb = r.TreeBuilder()
+    tb.insert("submod", absent_commit, pygit2.GIT_FILEMODE_COMMIT)
+    tb.insert("real.txt", r.create_blob(b"hi\n"), pygit2.GIT_FILEMODE_BLOB)
+    tree_oid = tb.write()
+    sig = pygit2.Signature("t", "t@t")
+    commit_oid = r.create_commit(None, sig, sig, "with submodule", tree_oid, [])
+
+    man = build_manifest(r, str(commit_oid))
+    by_path = {e["path"]: e for e in man["entries"]}
+    assert by_path["submod"]["mode"] == "160000"
+    assert by_path["submod"]["size"] is None      # gitlink: never dereferenced
+    assert by_path["real.txt"]["size"] == 3
+
+
 # ── Erase / uninstall ────────────────────────────────────────────────────
 
 
