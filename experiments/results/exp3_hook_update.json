@@ -1,23 +1,23 @@
 {
   "experiment": "hook_update",
-  "generated_at": "2026-06-25T14:08:30",
+  "generated_at": "2026-06-25T14:44:31",
   "branch": "main",
-  "hook_path": "/tmp/exp3-kk0_a76i/repo.git/hooks/post-receive",
+  "hook_path": "/tmp/exp3-5yc3e9cc/repo.git/hooks/post-receive",
   "verdict": "PASS",
   "steps": [
     {
       "step": "first_push",
-      "new_oid": "28384b4e575e85aa7f3c494639ac119fd2a035c1",
+      "new_oid": "06ada9885036bc3376962467d8263999f0d235a3",
       "cache_built": true,
       "edited_path_in_manifest": true,
-      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/28384b4e575e85aa7f3c494639ac119fd2a035c1 (1 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-kk0_a76i/repo.git\n * [new branch]      HEAD -> main"
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/06ada9885036bc3376962467d8263999f0d235a3 (1 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-5yc3e9cc/repo.git\n * [new branch]      HEAD -> main"
     },
     {
       "step": "second_push",
-      "new_oid": "b422aeddf0130895b2442f2bf7ad355ed9f5dcf1",
+      "new_oid": "ba3e2f42fa782097a59f1b42cc3bf520c57ce21b",
       "cache_built": true,
       "total_cache_refs": 2,
-      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/b422aeddf0130895b2442f2bf7ad355ed9f5dcf1 (2 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-kk0_a76i/repo.git\n   28384b4..b422aed  HEAD -> main"
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/ba3e2f42fa782097a59f1b42cc3bf520c57ce21b (2 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-5yc3e9cc/repo.git\n   06ada98..ba3e2f4  HEAD -> main"
     }
   ]
 }

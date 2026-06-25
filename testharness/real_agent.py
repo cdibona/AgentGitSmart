@@ -186,6 +186,7 @@ def run_real_agent(
     service_url: str = "http://127.0.0.1:8765",
     pct: float = 1.0,
     seed: int = SEED_DEFAULT,
+    use_bundle: bool = True,
 ) -> dict:
     """
     Run the real agent task end-to-end and return a metrics dict.
@@ -241,7 +242,10 @@ def run_real_agent(
             # tiny delta since the bundle was created (~0 bytes for a fresh repo).
             # Without the bundle, the agent would download the full history
             # (~190 MiB for CPython) through the git daemon.
-            bundle_path = _find_bundle(repo_url, branch)
+            # use_bundle=False simulates a genuinely cold repo: no CDN bundle
+            # exists yet, so the full history must come through the network
+            # (just like blobless, but unshallow) — the honest first-visit cost.
+            bundle_path = _find_bundle(repo_url, branch) if use_bundle else None
             clone_args = [
                 "clone",
                 "--filter=blob:none",

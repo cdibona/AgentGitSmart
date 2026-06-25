@@ -30,6 +30,34 @@ async def _wait_port(host: str, port: int, timeout: float = 8.0) -> bool:
     return False
 
 
+async def _wait_http_ready(host: str, port: int, timeout: float = 8.0) -> bool:
+    """Poll until the HTTP server actually answers a request (not just bound).
+
+    A bound TCP port does NOT mean Flask is ready to serve — the very first
+    request can race the worker coming up and fail with a connection reset,
+    which previously made the first agentcache pass spuriously look 'cold'.
+    Any HTTP status (even 404) proves the app is serving.
+    """
+    deadline = time.monotonic() + timeout
+    path = f"http://{host}:{port}/healthz"
+    while time.monotonic() < deadline:
+        try:
+            def _probe() -> int:
+                import urllib.error
+                import urllib.request
+                try:
+                    return urllib.request.urlopen(path, timeout=2).status  # noqa: S310
+                except urllib.error.HTTPError as e:   # 404 etc. == serving
+                    return e.code
+
+            code = await asyncio.get_event_loop().run_in_executor(None, _probe)
+            if code:
+                return True
+        except Exception:
+            await asyncio.sleep(0.15)
+    return False
+
+
 class GitDaemon:
     """Wrap git daemon as an asyncio subprocess."""
 
@@ -88,6 +116,7 @@ class AgentCacheService:
         self.port = port
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._current_repo: Optional[str] = None
+        self._log_fh = None
 
     async def start(self, repo_dir: str) -> bool:
         if self._proc and self._proc.returncode is None:
@@ -100,14 +129,31 @@ class AgentCacheService:
         env["AGENTCACHE_SERVICE_PORT"] = str(self.port)
         env["AGENTCACHE_SERVICE_HOST"] = "127.0.0.1"
 
+        # Capture the service's stderr to a logfile so build/serve failures are
+        # diagnosable (was DEVNULL, which silently hid 500s e.g. for repos with
+        # submodules).  Appended so a switch_repo restart keeps prior history.
+        log_path = os.environ.get(
+            "AGENTCACHE_SERVICE_LOG",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "testharness", "data", "agentcache-service.log"),
+        )
+        try:
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            self._log_fh = open(log_path, "a")  # noqa: SIM115
+        except OSError:
+            self._log_fh = None
+
         self._proc = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "agentcache.service",
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=(self._log_fh if self._log_fh else asyncio.subprocess.DEVNULL),
         )
         ok = await _wait_port("127.0.0.1", self.port, timeout=6.0)
         if ok:
+            # Port bound != Flask ready; wait until it actually answers so the
+            # first agentcache pass doesn't spuriously look 'cold'.
+            await _wait_http_ready("127.0.0.1", self.port, timeout=8.0)
             self._current_repo = repo_dir
             log.info("agentcache service: port %d (repo: %s)", self.port, repo_dir)
         else:

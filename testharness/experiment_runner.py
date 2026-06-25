@@ -89,6 +89,9 @@ class ExperimentRunner:
     def cache_ref_exists(self, repo_dir: str, commit: str) -> bool:
         return f"{REF_PREFIX}/{commit}" in pygit2.Repository(repo_dir).references
 
+    def cache_ref_count(self, repo_dir: str) -> int:
+        return len(uninstall_mod.find_cache_refs(pygit2.Repository(repo_dir), REF_PREFIX))
+
     def clear_cache(self, repo_dir: str) -> int:
         return uninstall_mod.erase(repo_dir, ref_prefix=REF_PREFIX, dry_run=False)[
             "cache_ref_count"
@@ -103,6 +106,10 @@ class ExperimentRunner:
             await self.svc.switch_repo(repo_dir)
 
         cold = (method == "agentcache") and not self.cache_ref_exists(repo_dir, commit)
+        # Honest cold: on a genuinely cold commit (no cache ref yet) there is no
+        # CDN bundle either, so agentcache must pull full history through the
+        # network — the real first-visit cost.  Only warm passes get the bundle.
+        use_bundle = not cold
         snap = self.proxy.snapshot()
         t0 = time.monotonic()
         result = await asyncio.get_event_loop().run_in_executor(
@@ -115,18 +122,26 @@ class ExperimentRunner:
                 service_url=self.service_url(),
                 pct=pct,
                 seed=seed,
+                use_bundle=use_bundle,
             ),
         )
         wall = time.monotonic() - t0
         delta = self.proxy.delta(snap)
         return {
             "bytes": delta["bytes_out"],
+            "bytes_sent": delta["bytes_in"],
             "wall_s": round(wall, 3),
             "roundtrips": result.get("fetch_roundtrips", 0),
             "cold": bool(cold),
-            "modified": result.get("files_modified", 0),
-            "agentcache_detected": result.get("agentcache_detected", False),
             "bundle_used": result.get("bundle_used", False),
+            "agentcache_detected": result.get("agentcache_detected", False),
+            "files_found": result.get("files_found", 0),
+            "files_selected": result.get("files_selected", 0),
+            "modified": result.get("files_modified", 0),
+            "phase_clone_ms": round(result.get("phase_clone_ms", 0.0), 1),
+            "phase_discover_ms": round(result.get("phase_discover_ms", 0.0), 1),
+            "phase_fetch_ms": round(result.get("phase_fetch_ms", 0.0), 1),
+            "phase_commit_ms": round(result.get("phase_commit_ms", 0.0), 1),
             "error": result.get("error"),
         }
 
@@ -201,9 +216,11 @@ class ExperimentRunner:
         else:
             branch = self.default_branch(repo_dir)
 
+        remaining = self.cache_ref_count(repo_dir)
         commit = self.head_commit(repo_dir, f"refs/heads/{branch}")
         nfiles = self.file_count(repo_dir, commit)
-        emit(f"[{repo}] start — {nfiles} files, cleared {cleared} cache ref(s)")
+        emit(f"[{repo}] start — {nfiles} files · cleared {cleared} agent-cache "
+             f"ref(s), {remaining} remain (verified cold)")
 
         # Spread the requested human commits across the gaps between agent
         # passes, one per gap, starting right after pass 1.  With G = passes-1
@@ -289,15 +306,23 @@ def _summarize_campaign(timeline: list[dict], methods: list[str]) -> dict:
             "warm_avg_bytes": round(sum(c["bytes"] for c in warm) / len(warm)),
             "cold_wall": cold["wall_s"],
             "warm_avg_wall": round(sum(c["wall_s"] for c in warm) / len(warm), 3),
-            "avg_roundtrips": round(sum(c["roundtrips"] for c in cells) / len(cells), 1),
+            "cold_roundtrips": cold.get("roundtrips", 0),
+            "warm_avg_roundtrips": round(sum(c.get("roundtrips", 0) for c in warm) / len(warm), 1),
+            "cold_bundle_used": cold.get("bundle_used", False),
+            "warm_bundle_used": warm[0].get("bundle_used", False),
+            "cold_clone_ms": cold.get("phase_clone_ms", 0.0),
+            "warm_avg_clone_ms": round(sum(c.get("phase_clone_ms", 0.0) for c in warm) / len(warm), 1),
             "runs": len(cells),
         }
-    # win factors vs naive (using warm averages)
+    # win factors vs naive (warm averages) — both bytes and wall time.
     naive_warm = out.get("naive", {}).get("warm_avg_bytes")
-    wins = {}
-    if naive_warm:
-        for m in methods:
-            mw = out.get(m, {}).get("warm_avg_bytes")
-            wins[m] = round(naive_warm / mw, 1) if mw else None
+    naive_warm_wall = out.get("naive", {}).get("warm_avg_wall")
+    wins, wins_wall = {}, {}
+    for m in methods:
+        mw = out.get(m, {}).get("warm_avg_bytes")
+        wins[m] = round(naive_warm / mw, 1) if (naive_warm and mw) else None
+        mwall = out.get(m, {}).get("warm_avg_wall")
+        wins_wall[m] = round(naive_warm_wall / mwall, 1) if (naive_warm_wall and mwall) else None
     out["_win_vs_naive"] = wins
+    out["_win_vs_naive_wall"] = wins_wall
     return out

@@ -457,6 +457,16 @@
         </div>
 
         <div x-show="currentExp?.status === 'complete'">
+          <!-- Legend explaining the cold/warm economics -->
+          <div class="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-5 text-xs text-gray-400 leading-relaxed">
+            <span class="font-semibold text-gray-200">How to read this:</span>
+            Every campaign starts by <span class="text-gray-200">erasing all agent-cache artifacts</span> (verified in the log).
+            The <span class="text-amber-400 font-semibold">cold</span> first pass is a genuinely fresh repo — <em>no</em> symbol/manifest cache
+            <em>and no CDN bundle yet</em> — so agentcache must pull full history over the network, just like blobless (often
+            <em>more</em>, since it fetches unshallowed history). Only once the cache + bundle exist (built by the hook / lazy-gen)
+            do later <span class="text-green-400 font-semibold">warm</span> passes become cheap. That cold→warm jump is the whole point.
+          </div>
+
           <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Summary — cold (1st run) vs warm (avg of rest)</h2>
           <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto mb-6">
             <table class="w-full text-xs">
@@ -467,7 +477,9 @@
                   <template x-for="m in (currentExp?.config.methods||[])" :key="m">
                     <th class="px-3 py-2 text-right" :class="approachHeaderColor(m)" x-text="m + ' warm'"></th>
                   </template>
-                  <th class="px-3 py-2 text-right text-green-400">agentcache cold→warm</th>
+                  <th class="px-3 py-2 text-right">ac cold bytes</th>
+                  <th class="px-3 py-2 text-right text-green-400">ac warm bytes</th>
+                  <th class="px-3 py-2 text-right">ac cold→warm wall</th>
                   <th class="px-3 py-2 text-right text-green-400">win vs naive</th>
                 </tr>
               </thead>
@@ -479,10 +491,12 @@
                     <template x-for="m in (currentExp?.config.methods||[])" :key="m">
                       <td class="px-3 py-2 text-right font-mono text-gray-300" x-text="fmtB(c.summary?.[m]?.warm_avg_bytes)"></td>
                     </template>
+                    <td class="px-3 py-2 text-right font-mono text-amber-400" x-text="fmtB(c.summary?.agentcache?.cold_bytes)"></td>
+                    <td class="px-3 py-2 text-right font-mono text-green-400" x-text="fmtB(c.summary?.agentcache?.warm_avg_bytes)"></td>
                     <td class="px-3 py-2 text-right font-mono text-gray-400">
-                      <span x-text="fmtB(c.summary?.agentcache?.cold_bytes)"></span>
+                      <span class="text-amber-400" x-text="(c.summary?.agentcache?.cold_wall ?? 0).toFixed(2)+'s'"></span>
                       <span class="text-gray-600">→</span>
-                      <span class="text-green-400" x-text="fmtB(c.summary?.agentcache?.warm_avg_bytes)"></span>
+                      <span class="text-green-400" x-text="(c.summary?.agentcache?.warm_avg_wall ?? 0).toFixed(2)+'s'"></span>
                     </td>
                     <td class="px-3 py-2 text-right font-mono text-green-400 font-semibold"
                         x-text="c.summary?._win_vs_naive?.agentcache ? (c.summary._win_vs_naive.agentcache+'×') : '—'"></td>
@@ -491,6 +505,62 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Per-pass detail (every pass × method, expandable) -->
+          <details class="bg-gray-800 rounded-xl border border-gray-700 mb-6">
+            <summary class="px-4 py-3 cursor-pointer text-xs font-semibold text-gray-400 hover:text-gray-200 uppercase tracking-wider">Per-pass detail — every pass × method (bytes · wall · round-trips · phases)</summary>
+            <div class="px-4 pb-4 space-y-5">
+              <template x-for="c in (currentExp?.campaigns||[])" :key="'d-'+c.repo">
+                <div>
+                  <div class="text-xs font-mono text-gray-200 mb-1 mt-2" x-text="c.repo"></div>
+                  <table class="w-full text-xs">
+                    <thead class="text-gray-500">
+                      <tr>
+                        <th class="px-2 py-1 text-left">pass</th>
+                        <th class="px-2 py-1 text-left">method</th>
+                        <th class="px-2 py-1 text-right">net recv</th>
+                        <th class="px-2 py-1 text-right">wall</th>
+                        <th class="px-2 py-1 text-right">round-trips</th>
+                        <th class="px-2 py-1 text-right">clone</th>
+                        <th class="px-2 py-1 text-right">discover</th>
+                        <th class="px-2 py-1 text-right">fetch</th>
+                        <th class="px-2 py-1 text-center">state</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-800">
+                      <template x-for="(p, pi) in (c.timeline||[])" :key="'p-'+c.repo+'-'+pi">
+                        <template x-if="p.kind==='agent'">
+                          <template x-for="m in (currentExp?.config.methods||[])" :key="'pm-'+c.repo+'-'+pi+'-'+m">
+                            <tr class="hover:bg-gray-900/50">
+                              <td class="px-2 py-1 text-gray-500" x-text="m===currentExp.config.methods[0] ? ('#'+p.pass_index) : ''"></td>
+                              <td class="px-2 py-1" :class="approachHeaderColor(m)" x-text="m"></td>
+                              <td class="px-2 py-1 text-right font-mono text-gray-300" x-text="fmtB(p.cells?.[m]?.bytes)"></td>
+                              <td class="px-2 py-1 text-right font-mono text-gray-300" x-text="(p.cells?.[m]?.wall_s ?? 0).toFixed(2)+'s'"></td>
+                              <td class="px-2 py-1 text-right font-mono" :class="(p.cells?.[m]?.roundtrips>10)?'text-red-400':(p.cells?.[m]?.roundtrips<=1?'text-green-400':'text-yellow-400')" x-text="p.cells?.[m]?.roundtrips ?? 0"></td>
+                              <td class="px-2 py-1 text-right font-mono text-gray-500" x-text="Math.round(p.cells?.[m]?.phase_clone_ms||0)+'ms'"></td>
+                              <td class="px-2 py-1 text-right font-mono text-gray-500" x-text="Math.round(p.cells?.[m]?.phase_discover_ms||0)+'ms'"></td>
+                              <td class="px-2 py-1 text-right font-mono text-gray-500" x-text="Math.round(p.cells?.[m]?.phase_fetch_ms||0)+'ms'"></td>
+                              <td class="px-2 py-1 text-center">
+                                <span x-show="m==='agentcache' && p.cells?.[m]?.cold" class="text-amber-400" title="cold: no cache, no bundle">❄ cold</span>
+                                <span x-show="m==='agentcache' && !p.cells?.[m]?.cold" class="text-green-500" title="warm: cache + bundle present">✓ warm</span>
+                                <span x-show="m==='agentcache' && p.cells?.[m]?.bundle_used" class="text-indigo-400 ml-1" title="seeded from CDN bundle">📦</span>
+                                <span x-show="p.cells?.[m]?.error" class="text-red-400" x-text="'err'"></span>
+                              </td>
+                            </tr>
+                          </template>
+                        </template>
+                        <template x-if="p.kind==='human'">
+                          <tr class="bg-yellow-900/10">
+                            <td class="px-2 py-1 text-yellow-500" colspan="9" x-text="'⟶ human commit #'+(p.human_index||1)+(p.hook_warmed?' (hook pre-warmed cache + bundle)':' (no hook → next agent goes cold)')"></td>
+                          </tr>
+                        </template>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+            </div>
+          </details>
 
           <div class="grid grid-cols-2 gap-4 mb-4">
             <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
