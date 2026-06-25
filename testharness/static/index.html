@@ -138,6 +138,21 @@
 
         <div class="max-w-xl bg-gray-800 rounded-xl border border-gray-700 p-6 space-y-5">
 
+          <!-- Presets -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Example scenarios</label>
+            <div class="grid grid-cols-1 gap-2">
+              <template x-for="p in presets" :key="p.label">
+                <button @click="applyPreset(p)"
+                  class="text-left px-3 py-2 rounded bg-gray-900 border border-gray-700 hover:border-indigo-500 transition group">
+                  <div class="text-xs font-semibold text-indigo-300 group-hover:text-indigo-200" x-text="p.label"></div>
+                  <div class="text-xs text-gray-500 mt-0.5 font-mono" x-text="p.repo_name + ' @ ' + p.branch"></div>
+                </button>
+              </template>
+            </div>
+            <div class="mt-2 h-px bg-gray-700"></div>
+          </div>
+
           <!-- Repo -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-1">Repository</label>

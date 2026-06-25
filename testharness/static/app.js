@@ -37,10 +37,38 @@ function app() {
     savings: null,
     formError: '',
 
+    // Preset example scenarios — shown in the New Test form
+    presets: [
+      {
+        label: 'CPython — asyncio + ast (realistic agent task)',
+        repo_name: 'cpython.git',
+        branch: 'main',
+        paths: 'Lib/asyncio/tasks.py\nLib/asyncio/base_events.py\nLib/ast.py',
+      },
+      {
+        label: 'CPython — single C file (compiler internals)',
+        repo_name: 'cpython.git',
+        branch: 'main',
+        paths: 'Python/ceval.c',
+      },
+      {
+        label: 'CPython — pathlib (pure-Python refactor task)',
+        repo_name: 'cpython.git',
+        branch: 'main',
+        paths: 'Lib/pathlib/_local.py\nLib/pathlib/_abc.py',
+      },
+      {
+        label: 'CPython — broad sweep (10 files, stress test)',
+        repo_name: 'cpython.git',
+        branch: 'main',
+        paths: 'Lib/asyncio/tasks.py\nLib/asyncio/base_events.py\nLib/ast.py\nLib/pathlib/_local.py\nLib/typing.py\nLib/dataclasses.py\nPython/ceval.c\nInclude/cpython/object.h\nObjects/typeobject.c\nModules/_io/bufferedio.c',
+      },
+    ],
+
     form: {
-      repo_name: '',
-      branch: 'master',
-      target_paths_text: 'src/app.py',
+      repo_name: 'cpython.git',
+      branch: 'main',
+      target_paths_text: 'Lib/asyncio/tasks.py\nLib/asyncio/base_events.py\nLib/ast.py',
       approaches: ['naive', 'blobless', 'agentcache'],
       num_runs: 3,
     },
@@ -76,6 +104,13 @@ function app() {
         this.historyRuns = d.runs || [];
         this.recentRuns = this.historyRuns.slice(0, 8);
       } catch(e) {}
+    },
+
+    // ── presets ───────────────────────────────────────────────────
+    applyPreset(p) {
+      this.form.repo_name = p.repo_name;
+      this.form.branch    = p.branch;
+      this.form.target_paths_text = p.paths;
     },
 
     // ── new test ──────────────────────────────────────────────────
