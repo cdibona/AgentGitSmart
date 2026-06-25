@@ -12,6 +12,7 @@ A small per-commit manifest cache avoids re-parsing on every request.
 from __future__ import annotations
 
 import json
+import threading
 from functools import lru_cache
 from typing import Any, Dict, List
 
@@ -20,11 +21,50 @@ from flask import Flask, jsonify, request
 
 from .config import AgentCacheConfig
 from . import cache_writer
+from . import hook as hook_mod
 
 
 def create_app(cfg: AgentCacheConfig) -> Flask:
     app = Flask(__name__)
     repo = pygit2.Repository(cfg.repo_dir)
+
+    # ── Lazy generation ────────────────────────────────────────────────
+    # If a cache is requested for a commit that has none, build it on the
+    # spot (first agent pays a one-time cost; everyone after reuses it).
+    # Per-commit locks prevent two simultaneous first-agents from racing to
+    # double-generate; a guard lock protects the lock registry itself.
+    _gen_locks: Dict[str, threading.Lock] = {}
+    _gen_locks_guard = threading.Lock()
+
+    def _ensure_cache(commit: str) -> bool:
+        """Ensure a cache ref exists for *commit*; build it if missing.
+
+        Returns True if a cache is available afterward, False if the commit
+        is unknown to this repo or lazy generation is disabled.
+        """
+        ref = f"{cfg.ref_prefix.rstrip('/')}/{commit}"
+        if ref in repo.references:
+            return True
+        if not cfg.lazy_generation:
+            return False
+        # Resolve the commit; if it isn't in this repo we can't generate.
+        try:
+            target = repo.revparse_single(commit).peel(pygit2.Commit)
+        except Exception:
+            return False
+        commit_hex = str(target.id)
+        canonical_ref = f"{cfg.ref_prefix.rstrip('/')}/{commit_hex}"
+
+        with _gen_locks_guard:
+            lock = _gen_locks.setdefault(commit_hex, threading.Lock())
+        with lock:
+            # Re-check inside the lock: another request may have built it.
+            if canonical_ref in repo.references:
+                return True
+            hook_mod.generate_for_commit(repo, commit_hex, cfg)
+            # Drop any stale memoized miss for this commit.
+            _manifest_index.cache_clear()
+        return True
 
     @lru_cache(maxsize=32)
     def _manifest_index(commit: str) -> Dict[str, Dict[str, Any]]:
@@ -50,6 +90,8 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
 
     @app.get("/cache/<commit>/manifest")
     def manifest(commit: str):
+        if not _ensure_cache(commit):
+            return jsonify(error=f"commit {commit} unknown to this repo"), 404
         try:
             raw = cache_writer.read_artifact(
                 repo, commit, "manifest.json", ref_prefix=cfg.ref_prefix
@@ -60,6 +102,8 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
 
     @app.get("/cache/<commit>/symbol/<name>")
     def symbol(commit: str, name: str):
+        if not _ensure_cache(commit):
+            return jsonify(error=f"commit {commit} unknown to this repo"), 404
         try:
             syms = _symbols(commit)
             idx = _manifest_index(commit)
@@ -85,6 +129,8 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
     def resolve(commit: str):
         body = request.get_json(silent=True) or {}
         paths: List[str] = body.get("paths", [])
+        if not _ensure_cache(commit):
+            return jsonify(error=f"commit {commit} unknown to this repo"), 404
         try:
             idx = _manifest_index(commit)
         except KeyError as exc:

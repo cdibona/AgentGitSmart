@@ -1,0 +1,110 @@
+"""Tests for lazy cache generation (service) and the erase/uninstall tool."""
+from __future__ import annotations
+
+import pygit2
+import pytest
+
+from agentcache.service import create_app
+from agentcache.uninstall import erase, find_cache_refs
+
+
+# ── Lazy generation ──────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def client(repo, cfg):
+    """A test client over a repo that has NO cache yet (lazy gen will build it)."""
+    app = create_app(cfg)
+    app.config.update(TESTING=True)
+    return app.test_client(), repo[1]
+
+
+def test_manifest_lazily_generated_on_first_request(client, repo, cfg):
+    """First /manifest request for an uncached commit builds the cache."""
+    c, commit = client
+    r, _ = repo
+    ref = f"{cfg.ref_prefix}/{commit}"
+    assert ref not in r.references  # no cache exists yet
+
+    resp = c.get(f"/cache/{commit}/manifest")
+    assert resp.status_code == 200
+    assert resp.get_json()["source_commit"] == commit
+
+    # The side ref now exists — it was built on demand.
+    r2 = pygit2.Repository(cfg.repo_dir)
+    assert ref in r2.references
+
+
+def test_resolve_lazily_generated(client):
+    c, commit = client
+    resp = c.post(
+        f"/cache/{commit}/resolve",
+        json={"paths": ["src/app.py"]},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["fetch_oids"]
+
+
+def test_lazy_disabled_returns_404(repo):
+    """With lazy_generation off, an uncached commit 404s instead of building."""
+    from agentcache.config import AgentCacheConfig
+
+    r, commit = repo
+    cfg = AgentCacheConfig(repo_dir=r.path, lazy_generation=False)
+    app = create_app(cfg)
+    app.config.update(TESTING=True)
+    c = app.test_client()
+    assert c.get(f"/cache/{commit}/manifest").status_code == 404
+
+
+def test_lazy_unknown_commit_404(client):
+    """A commit that doesn't exist in the repo can't be generated → 404."""
+    c, _ = client
+    assert c.get("/cache/%s/manifest" % ("0" * 40)).status_code == 404
+
+
+# ── Erase / uninstall ────────────────────────────────────────────────────
+
+
+def test_erase_dry_run_changes_nothing(repo, cfg):
+    from agentcache.hook import generate_for_commit
+
+    r, commit = repo
+    generate_for_commit(r, commit, cfg)
+    assert len(find_cache_refs(r)) == 1
+
+    summary = erase(r.path, dry_run=True)
+    assert summary["dry_run"] is True
+    assert summary["cache_ref_count"] == 1
+    # Ref still present after a dry run.
+    assert len(find_cache_refs(pygit2.Repository(r.path))) == 1
+
+
+def test_erase_removes_all_cache_refs(repo, cfg):
+    from agentcache.hook import generate_for_commit
+
+    r, commit = repo
+    generate_for_commit(r, commit, cfg)
+    assert len(find_cache_refs(r)) == 1
+
+    summary = erase(r.path, dry_run=False, gc=False)
+    assert summary["dry_run"] is False
+    assert summary["cache_ref_count"] == 1
+
+    # Reopen: no agent-cache refs remain.
+    r2 = pygit2.Repository(r.path)
+    assert find_cache_refs(r2) == []
+
+
+def test_erase_leaves_normal_history_untouched(repo, cfg):
+    from agentcache.hook import generate_for_commit
+
+    r, commit = repo
+    generate_for_commit(r, commit, cfg)
+    head_before = str(r.references["refs/heads/master"].target)
+
+    erase(r.path, dry_run=False)
+
+    r2 = pygit2.Repository(r.path)
+    head_after = str(r2.references["refs/heads/master"].target)
+    assert head_after == head_before  # branch tip unchanged

@@ -42,6 +42,11 @@ class AgentCacheConfig:
     # URL this service is reachable at (used to self-reference in agents.md artifact).
     # Set AGENTCACHE_SERVICE_URL in the environment; leave blank to omit from artifact.
     service_url: str = ""
+    # Lazy generation: if a cache is requested for a commit that has none yet,
+    # build it on the spot (first agent pays a one-time cost, later agents reuse).
+    # This makes the post-receive hook an optimization, not a hard requirement:
+    # a repo "adopts" agentcache the moment the service serves its first request.
+    lazy_generation: bool = True
 
     @classmethod
     def from_env(cls, env_path: Optional[str] = None, *, repo_dir: Optional[str] = None) -> "AgentCacheConfig":
@@ -65,4 +70,5 @@ class AgentCacheConfig:
             service_host=os.environ.get("AGENTCACHE_SERVICE_HOST", "127.0.0.1"),
             service_port=int(os.environ.get("AGENTCACHE_SERVICE_PORT", "8765")),
             service_url=os.environ.get("AGENTCACHE_SERVICE_URL", ""),
+            lazy_generation=_bool(os.environ.get("AGENTCACHE_LAZY_GENERATION"), default=True),
         )

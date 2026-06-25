@@ -17,8 +17,9 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.scripts]
-agentcache-service = "agentcache.service:main"
-agentcache-hook    = "agentcache.hook:main"
+agentcache-service   = "agentcache.service:main"
+agentcache-hook      = "agentcache.hook:main"
+agentcache-uninstall = "agentcache.uninstall:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
