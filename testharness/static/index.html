@@ -395,14 +395,16 @@
             </div>
 
             <div class="border-t border-gray-700 pt-3 space-y-2">
-              <label class="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" x-model="exp.human_pass" class="rounded border-gray-600">
-                <span class="text-gray-200">Inject a human commit</span>
-              </label>
-              <p class="text-xs text-gray-500 -mt-1">A teammate pushes a file after pass 1 (moves HEAD → invalidates the commit-keyed cache).</p>
-              <label class="flex items-center gap-2 text-sm cursor-pointer pl-4" :class="exp.human_pass?'':'opacity-40'">
-                <input type="checkbox" x-model="exp.hook_warms" :disabled="!exp.human_pass" class="rounded border-gray-600">
-                <span class="text-gray-300">post-receive hook pre-warms the new cache</span>
+              <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-200">Human commits</label>
+                <input x-model.number="exp.human_commits" type="number" min="0" :max="Math.max(0,(exp.passes||1)-1)"
+                  class="w-16 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm">
+                <span class="text-xs text-gray-500">interleaved (one per gap, max <span x-text="Math.max(0,(exp.passes||1)-1)"></span>)</span>
+              </div>
+              <p class="text-xs text-gray-500 -mt-1">A teammate commit after a pass moves HEAD → invalidates the commit-keyed cache. With N passes you get up to N−1 commits, one between each pair.</p>
+              <label class="flex items-center gap-2 text-sm cursor-pointer pl-4" :class="exp.human_commits>0?'':'opacity-40'">
+                <input type="checkbox" x-model="exp.hook_warms" :disabled="exp.human_commits<1" class="rounded border-gray-600">
+                <span class="text-gray-300">post-receive hook pre-warms each new cache</span>
               </label>
             </div>
 
@@ -442,7 +444,7 @@
           <button @click="view='experiments'" class="text-gray-400 hover:text-white text-sm">← Experiments</button>
           <h1 class="text-xl font-semibold" x-text="'Experiment ' + (currentExp?.experiment_id ?? '')"></h1>
           <span :class="statusColor(currentExp?.status)" class="text-xs rounded px-1.5 py-0.5 font-medium" x-text="currentExp?.status"></span>
-          <span class="text-xs text-gray-500" x-text="currentExp ? (currentExp.config.repos.length+' repos · '+currentExp.config.passes+' passes · '+currentExp.config.pct+'%'+(currentExp.config.human_pass?' · human commit':'')) : ''"></span>
+          <span class="text-xs text-gray-500" x-text="currentExp ? (currentExp.config.repos.length+' repos · '+currentExp.config.passes+' passes · '+currentExp.config.pct+'%'+((currentExp.config.human_commits||currentExp.config.human_pass)?(' · '+(currentExp.config.human_commits||1)+' human commit(s)'):'')) : ''"></span>
         </div>
 
         <div x-show="currentExp?.status === 'running'" class="mb-6">

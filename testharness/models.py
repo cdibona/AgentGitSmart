@@ -103,7 +103,7 @@ class ExperimentConfig(BaseModel):
     passes: int = 3                 # agent passes per repo (1st = cold, rest = warm)
     pct: float = 2.0                # % of source files the agent edits
     seed: int = 1000
-    human_pass: bool = False        # insert a teammate commit after pass 1
+    human_commits: int = 0          # teammate commits to interleave (one per gap between agent passes)
     hook_warms: bool = True         # does the server hook pre-warm the new commit's cache?
 
 

@@ -184,14 +184,14 @@ class ExperimentRunner:
         passes = config["passes"]
         pct = config["pct"]
         seed0 = config["seed"]
-        human_pass = config["human_pass"]
+        human_commits = int(config.get("human_commits", 0) or 0)
         hook_warms = config["hook_warms"]
         exp_id = config["_exp_id"]
 
         # Start every campaign from a clean (cold) cache.
         cleared = self.clear_cache(repo_dir)
         created_branch: Optional[str] = None
-        if human_pass:
+        if human_commits > 0:
             # Work on a throwaway branch so HEAD moves are non-destructive.
             base = self.default_branch(repo_dir)
             base_commit = self.head_commit(repo_dir, f"refs/heads/{base}")
@@ -205,6 +205,13 @@ class ExperimentRunner:
         nfiles = self.file_count(repo_dir, commit)
         emit(f"[{repo}] start — {nfiles} files, cleared {cleared} cache ref(s)")
 
+        # Spread the requested human commits across the gaps between agent
+        # passes, one per gap, starting right after pass 1.  With G = passes-1
+        # gaps we can place at most G commits; anything beyond that is ignored
+        # (there is no later agent pass for it to affect).
+        gaps = max(0, passes - 1)
+        commits_to_place = min(human_commits, gaps) if gaps else 0
+        # gap after pass i (1-based) gets a human commit for i in 1..commits_to_place
         timeline: list[dict] = []
         human_count = 0
 
@@ -223,9 +230,8 @@ class ExperimentRunner:
                 )
             timeline.append({"pass_index": i, "kind": "agent", "commit": commit, "cells": cells})
 
-            # Insert a human commit after the FIRST pass (once), if requested and
-            # there are more passes to show the effect on.
-            if human_pass and i == 1 and passes > 1:
+            # Insert a human commit in this gap (after pass i), if budgeted.
+            if i <= commits_to_place:
                 human_count += 1
                 new_commit = self._human_commit(repo_dir, branch, human_count)
                 warmed = False
@@ -234,11 +240,12 @@ class ExperimentRunner:
                     warmed = True
                 timeline.append({
                     "pass_index": i, "kind": "human", "commit": new_commit,
-                    "hook_warmed": warmed,
-                    "note": "teammate pushed 1 file" + (" (hook pre-warmed cache)" if warmed else ""),
+                    "human_index": human_count, "hook_warmed": warmed,
+                    "note": f"teammate commit #{human_count}"
+                            + (" (hook pre-warmed cache)" if warmed else ""),
                 })
                 commit = new_commit  # subsequent agent passes target the new HEAD
-                emit(f"[{repo}] HUMAN commit {new_commit[:10]} "
+                emit(f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
                      + ("(hook pre-warmed)" if warmed else "(no hook → next agent cold)"))
 
         summary = _summarize_campaign(timeline, methods)

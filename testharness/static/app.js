@@ -50,7 +50,7 @@ function app() {
       passes: 3,
       pct: 2.0,
       seed: 1000,
-      human_pass: false,
+      human_commits: 0,
       hook_warms: true,
     },
     expRunning: false,
@@ -177,7 +177,7 @@ function app() {
         passes: Number(this.exp.passes) || 3,
         pct: Number(this.exp.pct) || 2.0,
         seed: Number(this.exp.seed) || 1000,
-        human_pass: !!this.exp.human_pass,
+        human_commits: Math.max(0, Number(this.exp.human_commits) || 0),
         hook_warms: !!this.exp.hook_warms,
       };
       let data;
