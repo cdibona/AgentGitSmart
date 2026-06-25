@@ -29,30 +29,12 @@ normal `git clone`, while still getting full history.
 
 ### 👤 If you are a human
 
-You have two jobs: **adopt** agentcache on a repo you control, and **tell your
-agents to use it**.
+**Your only job is to point your coding agent at this README.** Adopting
+agentcache on your Git server and making the repo agent-aware is work your agent
+does for you — you don't run any of it by hand.
 
-**1. Adopt it on your Git server** (one time) — see [Install](#install-server):
-
-```bash
-# in the bare repo on your server
-cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
-chmod +x /srv/git/myrepo.git/hooks/post-receive
-git --git-dir=/srv/git/myrepo.git config uploadpack.allowFilter true
-git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
-AGENTCACHE_REPO_DIR=/srv/git/myrepo.git python -m agentcache.service   # the query API
-```
-
-From then on, every push keeps the cache current automatically — including
-pushes from teammates who have never heard of agentcache (the hook runs
-server-side).
-
-**2. Make the repo agent-aware** so agents discover it on their own — drop an
-`AGENTS.md` and a `.agentcache` file in the repo root (see
-[Making your repo agent-aware](#making-your-repo-agent-aware)).
-
-**3. Point your agent at it.** In any coding-agent session (Claude Code, Codex
-CLI, Amplifier, Cursor, …), paste:
+In any coding-agent session (Claude Code, Amplifier, Codex CLI, Gemini CLI,
+Cursor, …), paste:
 
 > Point your coding agent to
 > https://github.com/cdibona/AgentCache/blob/main/README.md and follow the
@@ -60,6 +42,14 @@ CLI, Amplifier, Cursor, …), paste:
 
 …or, if the repo already has an `AGENTS.md`, simply: *"Read AGENTS.md — this
 repo uses agentcache."*
+
+That's it. Your agent reads the
+[🤖 If you've been sent by a human](#-if-youve-been-sent-by-a-human) section
+below and does the rest: if this is the first time agentcache is being applied
+to the project it sets it up (server hook + agent-aware files), otherwise it
+goes straight to the bandwidth-saving cold start. *(Prefer to wire it up by
+hand? The manual steps live in [Install (server)](#install-server) and
+[Making your repo agent-aware](#making-your-repo-agent-aware).)*
 
 ### 🤖 If you've been sent by a human
 
