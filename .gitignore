@@ -13,3 +13,6 @@ benchmark/results/
 # environment
 .env
 testharness/data/
+
+# Pre-built blobless bundles (large binary files, generated locally)
+benchmark/bundles/*.bundle

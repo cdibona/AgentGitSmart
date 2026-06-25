@@ -32,6 +32,28 @@ from typing import Optional
 SEED_DEFAULT = 42
 CLONE_TIMEOUT = 360  # full blobless clone of cpython can take a minute or two
 
+# Directories to search for pre-built blobless bootstrap bundles.
+# The bundle CDN path is the key to agentcache's efficiency: the history is
+# seeded from a pre-packaged local/CDN file (NOT through the git daemon),
+# so the promisor only serves the tiny delta + targeted blob fetches.
+# In production: bundles live on a CDN. Locally: we pre-build them.
+_BUNDLE_SEARCH_DIRS = [
+    "/pack/benchmark/bundles",           # Inside Docker container (/pack mounts repo root)
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "benchmark", "bundles"),  # Local run
+]
+
+
+def _find_bundle(repo_url: str, branch: str) -> Optional[str]:
+    """Return path to a pre-built blobless bundle for this repo+branch, or None."""
+    repo_name = os.path.basename(repo_url.rstrip("/"))
+    filename = f"{repo_name}-{branch}.bundle"
+    for d in _BUNDLE_SEARCH_DIRS:
+        path = os.path.join(d, filename)
+        if os.path.exists(path):
+            return path
+    return None
+
 
 # ── git helpers ────────────────────────────────────────────────────────────
 
@@ -121,6 +143,7 @@ def run_real_agent(
     metrics: dict = {
         "approach": approach,
         "agentcache_detected": False,
+        "bundle_used": False,   # True when history was seeded from local bundle (CDN simulation)
         "files_found": 0,
         "files_selected": 0,
         "files_fetched": 0,
@@ -153,9 +176,31 @@ def run_real_agent(
             _git("clone", "--filter=blob:none", "--depth=1", "--no-checkout",
                  f"--branch={branch}", repo_url, clone_dir, timeout=CLONE_TIMEOUT)
 
-        else:  # agentcache — full blobless, no depth (so targeted OID fetch works)
-            _git("clone", "--filter=blob:none", "--no-checkout",
-                 f"--branch={branch}", repo_url, clone_dir, timeout=CLONE_TIMEOUT)
+        else:  # agentcache
+            # The bundle CDN path is what makes agentcache efficient.  The
+            # bootstrap bundle is pre-built once on the server and served from
+            # a CDN (or local file in benchmarks).  The agent seeds the clone
+            # from the bundle — which does NOT go through the git daemon/proxy
+            # (it's a local/CDN file read) — so the promisor only serves the
+            # tiny delta since the bundle was created (~0 bytes for a fresh repo).
+            # Without the bundle, the agent would download the full history
+            # (~190 MiB for CPython) through the git daemon.
+            bundle_path = _find_bundle(repo_url, branch)
+            clone_args = [
+                "clone",
+                "--filter=blob:none",
+                "--no-checkout",
+                "--single-branch",          # only fetch the target branch
+                f"--branch={branch}",
+            ]
+            if bundle_path:
+                clone_args.append(f"--bundle-uri=file://{bundle_path}")
+                metrics["bundle_used"] = True
+            else:
+                metrics["bundle_used"] = False
+                # Without bundle, warn via metrics — history will be expensive
+            clone_args.extend([repo_url, clone_dir])
+            _git(*clone_args, timeout=CLONE_TIMEOUT)
 
         metrics["phase_clone_ms"] = round((time.monotonic() - t0) * 1000, 1)
 
@@ -272,7 +317,11 @@ def run_real_agent(
         if n_modified > 0:
             _git("config", "user.email", "agent@packcache", cwd=clone_dir)
             _git("config", "user.name", "PackCache Real Agent", cwd=clone_dir)
-            _git("add", "-u", cwd=clone_dir, timeout=30)
+            # Stage ONLY the modified files — not `git add -u` which in a
+            # --no-checkout blobless clone would see all 5801 other files as
+            # "deleted" and try to stage (and download) the entire repo.
+            modified = [p for p in selected if os.path.exists(os.path.join(clone_dir, p))]
+            _git("add", "--", *modified, cwd=clone_dir, timeout=30)
             _git(
                 "commit", "-m",
                 (
