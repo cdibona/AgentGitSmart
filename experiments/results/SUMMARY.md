@@ -1,23 +1,38 @@
 # Experiment results
 
 Real agentic task (edit 2 % of source files, add `!` to a comment, commit),
-5 iterations per method, measured end-to-end through a byte-counting proxy on
-the five collected CPython-sized projects.
+measured end-to-end through a byte-counting proxy across a **15-repo polyglot
+fleet** — chosen to stress unusual git patterns (submodules, empty files, LFS
+pointers, huge binary notebooks, thousands of tiny files, non-Python languages).
 
-## Experiment 1 — Cold vs warm cache
+## Experiment 1 — Cold vs warm cache (steady-state network per run)
 
-**Steady-state network per agent run (bytes received from the git server):**
+| Repo | lang / note | files | naive | blobless | **agentcache** | vs naive |
+|------|-------------|------:|------:|---------:|---------------:|---------:|
+| anthropic-cookbook | notebooks + images | 574 | 153 MiB | 44 KiB | **16 KiB** | **9,979×** |
+| ohmyzsh | 1000s of tiny shell files | 1,091 | 3 MiB | 61 KiB | **6 KiB** | 570× |
+| bat | Rust, submodule assets | 1,004 | 2 MiB | 60 KiB | **14 KiB** | 150× |
+| prettier | JS, weird test fixtures | 9,373 | 6 MiB | 549 KiB | **44 KiB** | 150× |
+| jq | C, submodule (oniguruma) | 429 | 1 MiB | 24 KiB | **9 KiB** | 140× |
+| cpython | C / Python | 5,801 | 43 MiB | 586 KiB | **372 KiB** | 118× |
+| go | Go, 15k files | 15,596 | 36 MiB | 1014 KiB | **462 KiB** | 80× |
+| django | Python, empty __init__ | 7,070 | 12 MiB | 515 KiB | **162 KiB** | 76× |
+| git | C, submodule gitlink | 4,765 | 12 MiB | 351 KiB | **197 KiB** | 65× |
+| redis | C, branch `unstable` | 1,818 | 5 MiB | 156 KiB | **95 KiB** | 52× |
+| anthropic-sdk-python | stainless-generated | 1,189 | 1 MiB | 79 KiB | **34 KiB** | 32× |
+| git-lfs | Go, LFS pointers | 650 | 878 KiB | 56 KiB | **27 KiB** | 32× |
+| fd | Rust | 57 | 143 KiB | 10 KiB | **7 KiB** | 20× |
+| codex | OpenAI agent (Rust/TS) | 5,259 | 10 MiB | 845 KiB | **628 KiB** | 17× |
+| ripgrep | Rust | 222 | 650 KiB | 48 KiB | **38 KiB** | 17× |
 
-| Repo | files | naive | blobless | **agentcache** | agentcache vs naive |
-|------|------:|------:|---------:|---------------:|--------------------:|
-| cpython | 5,801 | 43 MiB | 454 KiB | **247 KiB** | 178× less |
-| django  | 7,070 | 12 MiB | 496 KiB | **143 KiB** | 86× less |
-| go      | 15,596 | 36 MiB | 542 KiB | **42 KiB** | 878× less |
-| git     | 4,765 | 12 MiB | 283 KiB | **138 KiB** | 89× less |
-| redis   | 1,818 | 5 MiB | 102 KiB | **44 KiB** | 116× less |
+**agentcache is the bandwidth winner on all 15 repos** (17×–9,979× less than
+naive), while also delivering **full history** (blobless is `--depth=1`, no
+history) in a **single round-trip**. The first visit pays a one-time, server-
+side lazy build; every later agent on that commit reuses it.
 
-agentcache is the bandwidth winner on every repo, while also delivering **full
-history** (blobless is `--depth=1`, no history) in a **single round-trip**.
+The extreme case (anthropic-cookbook, 153 MiB → 16 KiB) is a repo full of
+Jupyter notebooks with embedded image/output bytes: naive drags down all of it,
+agentcache fetches only the handful of files the agent actually touches.
 
 **Cold (first visit) vs warm (subsequent), agentcache wall time:**
 
@@ -65,3 +80,17 @@ cache ref. Human activity keeps the cache current with zero agent involvement.
 2. **git submodule crash** — `git.git` has a gitlink (`sha1collisiondetection`)
    whose commit isn't in the object store; the manifest builder crashed on it.
    Fixed: detect gitlinks by mode (160000) and never dereference them.
+3. **Python-only test agent** — the synthetic agent only recognised `.py`
+   files and `#` comments, so it errored ("No source files found") on the
+   polyglot fleet (Rust `fd`/`ripgrep`, Go `git-lfs`, JS `prettier`). This was
+   a limitation of the *test harness*, not agentcache. Fixed: the agent is now
+   language-aware (`.rs`/`.go`/`.js`/`.c`/`.lua`/… with `//`, `--`, `#`
+   comment styles), so it exercises agentcache across every project.
+
+## The fleet (15 repos, chosen to be "weird")
+
+cpython, django, go, git, redis, **codex** (OpenAI agent CLI),
+**anthropic-sdk-python**, **anthropic-cookbook**, jq, bat, ripgrep, prettier,
+ohmyzsh, git-lfs, fd. Adding another is just
+`git clone --mirror <url> benchmark/repos/<name>.git && python -m experiments.prep` —
+the harness discovers repos automatically.

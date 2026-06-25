@@ -40,8 +40,21 @@ from agentcache import uninstall as uninstall_mod  # noqa: E402
 REPOS_DIR = str(_ROOT / "benchmark" / "repos")
 REF_PREFIX = "refs/agent-cache"
 
-# The five collected, CPython-sized projects.
-ALL_REPOS = ["cpython", "django", "go", "git", "redis"]
+
+def discover_repos(repos_dir: str = REPOS_DIR) -> list[str]:
+    """Every mirrored repo under benchmark/repos/ (name without the .git suffix).
+
+    Adding a new project to the test fleet is just ``git clone --mirror`` into
+    benchmark/repos/ — no code change needed.  Sorted for stable ordering.
+    """
+    base = Path(repos_dir)
+    if not base.is_dir():
+        return []
+    return sorted(p.name[:-4] for p in base.glob("*.git") if p.is_dir())
+
+
+# Discovered dynamically so new mirrors are picked up automatically.
+ALL_REPOS = discover_repos()
 
 
 @dataclass

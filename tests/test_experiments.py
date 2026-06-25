@@ -1,8 +1,48 @@
 """Tests for the experiment suite (lightweight; no big-repo / network paths)."""
 from __future__ import annotations
 
+import random
+
 from experiments import exp3_hook_update
 from experiments.harness import RunResult, fmt_bytes
+from testharness.real_agent import (
+    SOURCE_EXTS,
+    _add_exclamation,
+    _comment_prefixes,
+)
+
+
+def test_comment_prefixes_by_language():
+    # '#' family
+    assert _comment_prefixes("a/b/foo.py") == ("#",)
+    assert _comment_prefixes("plugins/git.zsh") == ("#",)
+    # '//' family — the cases that used to break (Rust/Go/JS/C)
+    assert _comment_prefixes("src/main.rs") == ("//",)
+    assert _comment_prefixes("cmd/x.go") == ("//",)
+    assert _comment_prefixes("index.tsx") == ("//",)
+    assert _comment_prefixes("util.c") == ("//",)
+    # other markers
+    assert _comment_prefixes("init.lua") == ("--",)
+    # unknown / extensionless
+    assert _comment_prefixes("Makefile") == ()
+
+
+def test_add_exclamation_slashslash_comment():
+    """The Rust/Go/JS path: '//' comments must be editable, not just '#'."""
+    src = "fn main() {\n    // a comment\n    let x = 1;\n}\n"
+    out, changed = _add_exclamation(src, random.Random(0), ("//",))
+    assert changed is True
+    assert "// a comment!" in out
+
+
+def test_add_exclamation_no_eligible_comment():
+    out, changed = _add_exclamation("let x = 1;\n", random.Random(0), ("//",))
+    assert changed is False
+
+
+def test_source_exts_cover_polyglot_fleet():
+    for ext in (".py", ".rs", ".go", ".js", ".ts", ".c", ".lua", ".rb", ".sh"):
+        assert ext in SOURCE_EXTS
 
 
 def test_fmt_bytes_units():

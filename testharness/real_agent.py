@@ -117,13 +117,43 @@ def _detect_agentcache(service_url: str, commit: str) -> Optional[list]:
 
 # ── comment editing ────────────────────────────────────────────────────────
 
-def _add_exclamation(content: str, rng: random.Random) -> tuple:
+# Map each source extension to its line-comment prefix(es) so the agent works
+# across the whole fleet (Rust/Go/JS/C/shell/Lua/…), not just Python.  This is
+# exactly where Python-only assumptions used to break the test (fd, ripgrep,
+# prettier, git-lfs all carry zero .py files).
+SOURCE_COMMENTS = {
+    # '#' family
+    ".py": ("#",), ".rb": ("#",), ".sh": ("#",), ".bash": ("#",), ".zsh": ("#",),
+    ".pl": ("#",), ".pm": ("#",), ".ex": ("#",), ".exs": ("#",), ".jq": ("#",),
+    ".r": ("#",), ".tf": ("#",), ".toml": ("#",), ".yaml": ("#",), ".yml": ("#",),
+    # '//' family
+    ".rs": ("//",), ".go": ("//",), ".js": ("//",), ".jsx": ("//",), ".mjs": ("//",),
+    ".cjs": ("//",), ".ts": ("//",), ".tsx": ("//",), ".c": ("//",), ".h": ("//",),
+    ".cc": ("//",), ".cpp": ("//",), ".hpp": ("//",), ".cxx": ("//",), ".java": ("//",),
+    ".swift": ("//",), ".kt": ("//",), ".kts": ("//",), ".scala": ("//",),
+    ".zig": ("//",), ".dart": ("//",), ".cs": ("//",),
+    # other line-comment markers
+    ".php": ("//", "#"), ".lua": ("--",), ".sql": ("--",), ".hs": ("--",),
+    ".vim": ('"',), ".el": (";",), ".clj": (";",), ".lisp": (";",),
+}
+SOURCE_EXTS = tuple(SOURCE_COMMENTS.keys())
+
+
+def _comment_prefixes(path: str) -> tuple:
+    """Line-comment prefix(es) for a path, by extension ('' if unknown)."""
+    dot = path.rfind(".")
+    ext = path[dot:].lower() if dot != -1 else ""
+    return SOURCE_COMMENTS.get(ext, ())
+
+
+def _add_exclamation(content: str, rng: random.Random, prefixes: tuple = ("#",)) -> tuple:
     """Add '!' to a randomly chosen comment line. Returns (new_content, bool)."""
     lines = content.split("\n")
     eligible = [
         i
         for i, line in enumerate(lines)
-        if line.strip().startswith("#") and not line.rstrip().endswith("!")
+        if any(line.strip().startswith(p) for p in prefixes)
+        and not line.rstrip().endswith("!")
     ]
     if not eligible:
         return content, False
@@ -226,25 +256,25 @@ def run_real_agent(
             if entries is not None:
                 metrics["agentcache_detected"] = True
                 all_py = [
-                    e["path"] for e in entries if e["path"].endswith(".py")
+                    e["path"] for e in entries if e["path"].endswith(SOURCE_EXTS)
                 ]
             else:
                 # Service down: fall back to git ls-tree (still blobless).
                 r = _git("ls-tree", "-r", "--name-only", "HEAD",
                          cwd=clone_dir, timeout=30)
-                all_py = [l for l in r.stdout.splitlines() if l.endswith(".py")]
+                all_py = [l for l in r.stdout.splitlines() if l.endswith(SOURCE_EXTS)]
 
         elif approach == "blobless":
             # ls-tree works because we have all tree objects.
             r = _git("ls-tree", "-r", "--name-only", "HEAD",
                      cwd=clone_dir, timeout=30)
-            all_py = [l for l in r.stdout.splitlines() if l.endswith(".py")]
+            all_py = [l for l in r.stdout.splitlines() if l.endswith(SOURCE_EXTS)]
 
         else:  # naive — walk the working tree on disk
             for root, dirs, files in os.walk(clone_dir):
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
                 for fname in files:
-                    if fname.endswith(".py"):
+                    if fname.endswith(SOURCE_EXTS):
                         rel = os.path.relpath(
                             os.path.join(root, fname), clone_dir
                         )
@@ -255,7 +285,7 @@ def run_real_agent(
         metrics["phase_discover_ms"] = round((time.monotonic() - t1) * 1000, 1)
 
         if not all_py:
-            raise RuntimeError("No Python files found in repo")
+            raise RuntimeError("No recognised source files found in repo")
 
         # ── Phase 3: Select 1% ─────────────────────────────────────
         n_select = max(1, int(len(all_py) * pct / 100))
@@ -345,7 +375,8 @@ def run_real_agent(
             try:
                 with open(full, "r", encoding="utf-8", errors="replace") as fh:
                     content = fh.read()
-                new_content, changed = _add_exclamation(content, rng)
+                prefixes = _comment_prefixes(path) or ("#",)
+                new_content, changed = _add_exclamation(content, rng, prefixes)
                 if changed:
                     with open(full, "w", encoding="utf-8") as fh:
                         fh.write(new_content)
