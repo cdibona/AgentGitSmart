@@ -69,6 +69,9 @@ class ResultStorage:
         migrations = [
             ("use_docker", "ALTER TABLE runs ADD COLUMN use_docker INTEGER NOT NULL DEFAULT 1"),
             ("latency_ms", "ALTER TABLE runs ADD COLUMN latency_ms INTEGER NOT NULL DEFAULT 0"),
+            ("use_real_agent", "ALTER TABLE runs ADD COLUMN use_real_agent INTEGER NOT NULL DEFAULT 0"),
+            ("agent_pct", "ALTER TABLE runs ADD COLUMN agent_pct REAL NOT NULL DEFAULT 1.0"),
+            ("agent_seed", "ALTER TABLE runs ADD COLUMN agent_seed INTEGER NOT NULL DEFAULT 42"),
         ]
         with self._conn() as conn:
             # Get existing column names
@@ -91,8 +94,9 @@ class ResultStorage:
                 """
                 INSERT INTO runs
                   (run_id, created_at, status, repo_name, branch,
-                   target_paths, approaches, num_runs, use_docker, latency_ms)
-                VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)
+                   target_paths, approaches, num_runs, use_docker, latency_ms,
+                   use_real_agent, agent_pct, agent_seed)
+                VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -104,6 +108,9 @@ class ResultStorage:
                     config.num_runs,
                     int(config.use_docker),
                     config.latency_ms,
+                    int(config.use_real_agent),
+                    config.agent_pct,
+                    config.agent_seed,
                 ),
             )
 
@@ -171,7 +178,7 @@ class ResultStorage:
                                                   **{k: v for k, v in item.items()
                                                      if k not in ("approach", "elapsed_s")}))
 
-        # use_docker / latency_ms may be absent from old rows
+        # use_docker / latency_ms / real-agent fields may be absent from old rows
         try:
             use_docker = bool(row["use_docker"])
         except (IndexError, KeyError):
@@ -180,6 +187,18 @@ class ResultStorage:
             latency_ms = int(row["latency_ms"])
         except (IndexError, KeyError):
             latency_ms = 0
+        try:
+            use_real_agent = bool(row["use_real_agent"])
+        except (IndexError, KeyError):
+            use_real_agent = False
+        try:
+            agent_pct = float(row["agent_pct"])
+        except (IndexError, KeyError):
+            agent_pct = 1.0
+        try:
+            agent_seed = int(row["agent_seed"])
+        except (IndexError, KeyError):
+            agent_seed = 42
 
         return RunDetail(
             run_id=row["run_id"],
@@ -193,6 +212,9 @@ class ResultStorage:
             results=results,
             use_docker=use_docker,
             latency_ms=latency_ms,
+            use_real_agent=use_real_agent,
+            agent_pct=agent_pct,
+            agent_seed=agent_seed,
         )
 
     def get_stats(self) -> Dict[str, Any]:

@@ -236,6 +236,34 @@
             </div>
           </div>
 
+          <!-- Real Agent Mode -->
+          <div class="border-t border-gray-700 pt-4">
+            <label class="flex items-center gap-2 cursor-pointer mb-3">
+              <input type="checkbox" x-model="form.use_real_agent" class="rounded border-gray-600">
+              <span class="text-sm font-medium text-gray-300">Real Agent Mode</span>
+              <span class="text-xs text-gray-500 ml-1">— agent actually reads, edits, and commits files</span>
+            </label>
+            <div x-show="form.use_real_agent" class="pl-4 space-y-3">
+              <div class="text-xs text-gray-400 bg-gray-900 rounded p-3">
+                The agent discovers <em>all</em> Python files, selects a random 1%, adds <code>!</code> to
+                one comment per file, then commits locally. The key difference: how it <em>finds and fetches</em>
+                those files depends on the approach (manifest+batch vs N lazy fetches vs already on disk).
+              </div>
+              <div class="flex gap-4">
+                <div>
+                  <label class="text-xs text-gray-400">% of files to edit</label>
+                  <input x-model.number="form.agent_pct" type="number" min="0.1" max="10" step="0.1"
+                    class="block w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm mt-1">
+                </div>
+                <div>
+                  <label class="text-xs text-gray-400">Random seed</label>
+                  <input x-model.number="form.agent_seed" type="number"
+                    class="block w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm mt-1">
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Submit -->
           <button @click="startRun()"
             :disabled="!form.repo_name || form.approaches.length===0"
@@ -356,6 +384,69 @@
                       </div>
                     </div>
                     <div x-show="card.used_docker" class="mt-2 text-xs text-cyan-500">🐳 isolated container</div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Real Agent Results -->
+          <template x-if="currentRun?.use_real_agent && currentRun?.status === 'complete'">
+            <div class="mb-6">
+              <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Real Agent Results — What the Agent Actually Did</h2>
+              <div class="grid grid-cols-3 gap-4">
+                <template x-for="r in currentRun.results" :key="r.approach">
+                  <div class="bg-gray-800 rounded-xl border border-gray-700 p-4"
+                       :class="{'border-green-700': r.real_agent?.commit_sha}">
+                    <div class="font-semibold text-sm mb-3" :class="approachHeaderColor(r.approach)" x-text="r.approach"></div>
+                    <template x-if="r.real_agent">
+                      <div class="space-y-2 text-xs">
+                        <div class="flex justify-between">
+                          <span class="text-gray-400">AgentCache used</span>
+                          <span :class="r.real_agent.agentcache_detected ? 'text-green-400' : 'text-gray-500'"
+                                x-text="r.real_agent.agentcache_detected ? '✓ yes' : '✗ no'"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-400">Files found</span>
+                          <span class="text-gray-300 font-mono" x-text="r.real_agent.files_found.toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-400">Files selected (1%)</span>
+                          <span class="text-gray-300 font-mono" x-text="r.real_agent.files_selected.toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-400">Files fetched</span>
+                          <span class="text-gray-300 font-mono" x-text="r.real_agent.files_fetched.toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-400">Files modified</span>
+                          <span class="font-mono font-semibold" :class="r.real_agent.files_modified > 0 ? 'text-green-400' : 'text-gray-500'"
+                                x-text="r.real_agent.files_modified.toLocaleString()"></span>
+                        </div>
+                        <div class="flex justify-between">
+                          <span class="text-gray-400">Fetch round-trips</span>
+                          <span class="font-mono" :class="r.real_agent.fetch_roundtrips <= 1 ? 'text-green-400' : r.real_agent.fetch_roundtrips > 10 ? 'text-red-400' : 'text-yellow-400'"
+                                x-text="r.real_agent.fetch_roundtrips"></span>
+                        </div>
+                        <div class="border-t border-gray-700 pt-2 mt-2">
+                          <div class="text-gray-500 text-xs mb-1">Phase breakdown</div>
+                          <div class="flex justify-between"><span class="text-gray-400">clone</span><span class="font-mono text-gray-300" x-text="r.real_agent.phase_clone_ms.toFixed(0)+'ms'"></span></div>
+                          <div class="flex justify-between"><span class="text-gray-400">discover</span><span class="font-mono text-gray-300" x-text="r.real_agent.phase_discover_ms.toFixed(0)+'ms'"></span></div>
+                          <div class="flex justify-between"><span class="text-gray-400">fetch</span><span class="font-mono text-gray-300" x-text="r.real_agent.phase_fetch_ms.toFixed(0)+'ms'"></span></div>
+                          <div class="flex justify-between"><span class="text-gray-400">edit</span><span class="font-mono text-gray-300" x-text="r.real_agent.phase_edit_ms.toFixed(0)+'ms'"></span></div>
+                          <div class="flex justify-between"><span class="text-gray-400">commit</span><span class="font-mono text-gray-300" x-text="r.real_agent.phase_commit_ms.toFixed(0)+'ms'"></span></div>
+                        </div>
+                        <template x-if="r.real_agent.commit_sha">
+                          <div class="border-t border-gray-700 pt-2 mt-1">
+                            <div class="text-gray-500 text-xs">Commit SHA (proof of work)</div>
+                            <div class="font-mono text-indigo-300 text-xs break-all" x-text="r.real_agent.commit_sha?.slice(0,12)+'...'"></div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    <template x-if="!r.real_agent">
+                      <div class="text-gray-600 text-xs">No real agent data</div>
+                    </template>
                   </div>
                 </template>
               </div>

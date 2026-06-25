@@ -77,31 +77,52 @@ def run_in_container(
     symbol: str,
     cpu_interval_s: float = 0.2,
     on_cpu_sample: Optional[Callable[[float, float], None]] = None,
+    use_real_agent: bool = False,
+    agent_pct: float = 1.0,
+    agent_seed: int = 42,
 ) -> dict:
     """
     Run one approach in a fresh container. Returns:
       {clone, clone_ms, agent_task, cpu_samples, used_docker: True}
     Raises on infra failure.
     """
-    target_args = []
-    for p in target_paths:
-        target_args += ["--target", p]
+    if use_real_agent:
+        cmd = [
+            "docker", "run", "-d",
+            "--network=host",
+            "-v", f"{_REPO_ROOT}:/pack:ro",
+            "-e", "PYTHONPATH=/pack",
+            "-e", "GIT_TERMINAL_PROMPT=0",
+            IMAGE_TAG,
+            "python3", "/pack/testharness/real_agent_entry.py",
+            "--approach", approach,
+            "--repo-url", repo_url,
+            "--commit", commit,
+            "--branch", branch,
+            "--service-url", service_url,
+            "--pct", str(agent_pct),
+            "--seed", str(agent_seed),
+        ]
+    else:
+        target_args = []
+        for p in target_paths:
+            target_args += ["--target", p]
 
-    cmd = [
-        "docker", "run", "-d",
-        "--network=host",
-        "-v", f"{_REPO_ROOT}:/pack:ro",
-        "-e", "PYTHONPATH=/pack",
-        "-e", "GIT_TERMINAL_PROMPT=0",
-        IMAGE_TAG,
-        "python3", "/pack/testharness/container_entry.py",
-        "--approach", approach,
-        "--repo-url", repo_url,
-        "--commit", commit,
-        "--branch", branch,
-        "--service-url", service_url,
-        "--symbol", symbol,
-    ] + target_args
+        cmd = [
+            "docker", "run", "-d",
+            "--network=host",
+            "-v", f"{_REPO_ROOT}:/pack:ro",
+            "-e", "PYTHONPATH=/pack",
+            "-e", "GIT_TERMINAL_PROMPT=0",
+            IMAGE_TAG,
+            "python3", "/pack/testharness/container_entry.py",
+            "--approach", approach,
+            "--repo-url", repo_url,
+            "--commit", commit,
+            "--branch", branch,
+            "--service-url", service_url,
+            "--symbol", symbol,
+        ] + target_args
 
     start_proc = subprocess.run(cmd, capture_output=True, text=True)
     if start_proc.returncode != 0:
@@ -178,6 +199,9 @@ def run_in_container(
 
     if "error" in payload:
         raise RuntimeError(f"Container task error: {payload['error']}")
+
+    if "result" in payload:
+        payload["real_agent_data"] = payload["result"]
 
     payload["cpu_samples"] = sampler.samples if sampler else []
     payload["used_docker"] = True

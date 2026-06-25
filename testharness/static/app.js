@@ -79,6 +79,9 @@ function app() {
       num_runs: 3,
       use_docker: true,
       latency_ms: 0,
+      use_real_agent: false,
+      agent_pct: 1.0,
+      agent_seed: 42,
     },
 
     _sse: null,
@@ -142,6 +145,9 @@ function app() {
         num_runs: Number(this.form.num_runs) || 3,
         use_docker: this.form.use_docker,
         latency_ms: Number(this.form.latency_ms) || 0,
+        use_real_agent: this.form.use_real_agent,
+        agent_pct: Number(this.form.agent_pct) || 1.0,
+        agent_seed: Number(this.form.agent_seed) || 42,
       };
 
       let data;

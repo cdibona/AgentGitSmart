@@ -13,12 +13,31 @@ class RunConfig(BaseModel):
     num_runs: int = 3
     use_docker: bool = True
     latency_ms: int = 0
+    use_real_agent: bool = False
+    agent_pct: float = 1.0
+    agent_seed: int = 42
 
 
 class PhaseBreakdown(BaseModel):
     clone_s: float = 0.0
     resolve_s: float = 0.0
     fetch_s: float = 0.0
+
+
+class RealAgentMetrics(BaseModel):
+    agentcache_detected: bool = False
+    files_found: int = 0
+    files_selected: int = 0
+    files_fetched: int = 0
+    files_modified: int = 0
+    comments_modified: int = 0
+    fetch_roundtrips: int = 0
+    commit_sha: Optional[str] = None
+    phase_clone_ms: float = 0.0
+    phase_discover_ms: float = 0.0
+    phase_fetch_ms: float = 0.0
+    phase_edit_ms: float = 0.0
+    phase_commit_ms: float = 0.0
 
 
 class TimeseriesPoint(BaseModel):
@@ -53,6 +72,7 @@ class ApproachResult(BaseModel):
     agent_task: Optional[AgentTaskMetrics] = None
     used_docker: bool = False
     latency_ms: int = 0
+    real_agent: Optional[RealAgentMetrics] = None
 
 
 class RunSummary(BaseModel):
@@ -70,6 +90,9 @@ class RunDetail(RunSummary):
     num_runs: int = 3
     use_docker: bool = True
     latency_ms: int = 0
+    use_real_agent: bool = False
+    agent_pct: float = 1.0
+    agent_seed: int = 42
 
 
 class SystemStatus(BaseModel):

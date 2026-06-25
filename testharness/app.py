@@ -249,6 +249,9 @@ async def _start_and_run(run_id: str, config: RunConfig, repo_path: str) -> None
             num_runs=config.num_runs,
             use_docker=config.use_docker,
             latency_ms=config.latency_ms,
+            use_real_agent=config.use_real_agent,
+            agent_pct=config.agent_pct,
+            agent_seed=config.agent_seed,
         )
         _storage.finish_run(run_id, "complete", results)
     except Exception as exc:

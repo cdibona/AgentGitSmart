@@ -38,7 +38,7 @@ from benchmark.approaches import agentcache as ac_approach  # noqa: E402
 from .agent_task import run_agent_task  # noqa: E402
 from .docker_runner import ensure_image, is_docker_available, run_in_container  # noqa: E402
 from .metrics import CpuSampler, merge_timeseries  # noqa: E402
-from .models import AgentTaskMetrics, ApproachResult, PhaseBreakdown, TimeseriesPoint  # noqa: E402
+from .models import AgentTaskMetrics, ApproachResult, PhaseBreakdown, RealAgentMetrics, TimeseriesPoint  # noqa: E402
 from .proxy import ByteCountingProxy  # noqa: E402
 
 try:
@@ -161,6 +161,9 @@ class TestRunner:
         num_runs: int,
         use_docker: bool = True,
         latency_ms: int = 0,
+        use_real_agent: bool = False,
+        agent_pct: float = 1.0,
+        agent_seed: int = 42,
     ) -> List[ApproachResult]:
         """
         Run all requested approaches and return aggregated results.
@@ -249,17 +252,35 @@ class TestRunner:
                     try:
                         if docker_ok:
                             raw = await _in_thread(
-                                run_in_container,
-                                approach,
-                                repo_url,
-                                commit_hex,
-                                branch,
-                                target_paths,
-                                self.agentcache_url,
-                                self.symbol,
+                                lambda: run_in_container(
+                                    approach,
+                                    repo_url,
+                                    commit_hex,
+                                    branch,
+                                    target_paths,
+                                    self.agentcache_url,
+                                    self.symbol,
+                                    use_real_agent=use_real_agent,
+                                    agent_pct=agent_pct,
+                                    agent_seed=agent_seed,
+                                )
                             )
-                            # elapsed from docker run perspective
-                            raw["elapsed_s"] = raw.get("clone_ms", 0.0) / 1000.0
+                            if raw.get("real_agent_data"):
+                                rd = raw["real_agent_data"]
+                                raw["agent_task_data"] = {
+                                    "symbol_lookup_ms": rd.get("phase_discover_ms", 0.0),
+                                    "file_read_ms": rd.get("phase_fetch_ms", 0.0),
+                                    "network_roundtrips": rd.get("fetch_roundtrips", 0),
+                                    "total_agent_ready_ms": (
+                                        rd.get("phase_discover_ms", 0.0)
+                                        + rd.get("phase_fetch_ms", 0.0)
+                                    ),
+                                    "grep_cpu_pct": 0.0,
+                                }
+                                raw["elapsed_s"] = rd.get("elapsed_ms", 0.0) / 1000.0
+                            else:
+                                # elapsed from docker run perspective
+                                raw["elapsed_s"] = raw.get("clone_ms", 0.0) / 1000.0
                         else:
                             with tempfile.TemporaryDirectory(prefix="bench-") as wd:
                                 # Run approach + CPU sampler (pidtree if psutil available)
@@ -432,6 +453,29 @@ class TestRunner:
 
         clone_ms = avg("clone_ms", default=avg("elapsed_s") * 1000.0)
 
+        # Real agent metrics: use the median run
+        real_agent: Optional[RealAgentMetrics] = None
+        ra_data = median_run.get("real_agent_data")
+        if ra_data and isinstance(ra_data, dict):
+            try:
+                real_agent = RealAgentMetrics(
+                    agentcache_detected=ra_data.get("agentcache_detected", False),
+                    files_found=ra_data.get("files_found", 0),
+                    files_selected=ra_data.get("files_selected", 0),
+                    files_fetched=ra_data.get("files_fetched", 0),
+                    files_modified=ra_data.get("files_modified", 0),
+                    comments_modified=ra_data.get("comments_modified", 0),
+                    fetch_roundtrips=ra_data.get("fetch_roundtrips", 0),
+                    commit_sha=ra_data.get("commit_sha"),
+                    phase_clone_ms=ra_data.get("phase_clone_ms", 0.0),
+                    phase_discover_ms=ra_data.get("phase_discover_ms", 0.0),
+                    phase_fetch_ms=ra_data.get("phase_fetch_ms", 0.0),
+                    phase_edit_ms=ra_data.get("phase_edit_ms", 0.0),
+                    phase_commit_ms=ra_data.get("phase_commit_ms", 0.0),
+                )
+            except Exception:
+                pass
+
         return ApproachResult(
             approach=approach,
             elapsed_s=round(avg("elapsed_s"), 3),
@@ -447,4 +491,5 @@ class TestRunner:
             agent_task=agent_task,
             used_docker=used_docker,
             latency_ms=latency_ms,
+            real_agent=real_agent,
         )
