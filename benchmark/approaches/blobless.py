@@ -88,8 +88,11 @@ def run(
     t0 = time.monotonic()
 
     # Phase 1: blobless clone — fast, no blobs materialised.
+    # --depth=1 --single-branch keeps history equivalent to the naive approach
+    # (one commit, one branch) so the only variable is blob content fetched.
     proc = subprocess.run(
         ["git", "clone", "--filter=blob:none", "--no-checkout", "--progress",
+         "--depth=1", "--single-branch",
          f"--branch={branch}", repo_url, clone_dir],
         capture_output=True,
         text=True,
