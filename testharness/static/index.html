@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="h-full text-gray-100" x-data="app()" x-init="init()">
@@ -446,6 +447,33 @@
               </div>
             </div>
           </template>
+
+          <!-- ── Protocol Flow Diagrams ───────────────────────────────── -->
+          <div class="mb-6">
+            <h2 class="text-sm font-semibold text-gray-400 mb-1 uppercase tracking-wider">Protocol Flow Diagrams</h2>
+            <p class="text-xs text-gray-500 mb-4">
+              Full communication sequence between each entity. Edge labels show <strong class="text-gray-400">actual measured</strong> bandwidth and timing from this run.
+            </p>
+            <template x-for="result in currentRun.results" :key="result.approach">
+              <div class="mb-6">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="w-2 h-2 rounded-full"
+                    :class="{'bg-blue-400':result.approach==='naive','bg-orange-400':result.approach==='blobless','bg-green-400':result.approach==='agentcache'}">
+                  </span>
+                  <h3 class="text-sm font-semibold" :class="approachHeaderColor(result.approach)"
+                      x-text="result.approach"></h3>
+                  <span class="text-xs text-gray-500"
+                      x-text="'— ' + (result.elapsed_s||0).toFixed(2) + 's wall · ' + fmtB(result.bytes_proxy_out) + ' recv · ' + (result.agent_task?.network_roundtrips||0) + ' extra round-trips'">
+                  </span>
+                </div>
+                <div class="bg-gray-950 rounded-xl border border-gray-800 p-4 overflow-x-auto min-h-24">
+                  <div :id="'flow-' + result.approach" class="flow-diagram-container">
+                    <span class="text-gray-600 text-xs">Rendering…</span>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
 
           <!-- Raw JSON -->
           <details class="bg-gray-800 rounded-xl border border-gray-700">

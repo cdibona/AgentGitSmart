@@ -174,6 +174,8 @@ function app() {
         this._computeSavings(run.results);
         await this.$nextTick();
         this._renderCharts(run.results);
+        await this.$nextTick();
+        this.renderFlowDiagrams(run.results);
       }
     },
 
@@ -215,7 +217,11 @@ function app() {
               this.currentRun.status = 'complete';
               this.currentRun.results = event.results;
               this._computeSavings(event.results);
-              this.$nextTick(() => this._renderCharts(event.results));
+              this.$nextTick(async () => {
+                this._renderCharts(event.results);
+                await this.$nextTick();
+                this.renderFlowDiagrams(event.results);
+              });
             }
             this.loadHistory();
             break;
@@ -588,6 +594,160 @@ function app() {
     approachHeaderColor(a) {
       const map = { naive:'text-blue-400', blobless:'text-orange-400', agentcache:'text-green-400' };
       return map[a] || 'text-gray-300';
+    },
+
+    // ── flow diagram generation ────────────────────────────────────
+
+    fmtB(b) { return FMT.bytes(b); },
+
+    generateFlowDiagram(result) {
+      const at      = result.agent_task || {};
+      const bOut    = FMT.bytes(result.bytes_proxy_out || 0);
+      const bIn     = FMT.bytes(result.bytes_proxy_in  || 0);
+      const cloneMs = Math.round(result.clone_ms || 0);
+      const symMs   = Math.round(at.symbol_lookup_ms    || 0);
+      const fileMs  = Math.round(at.file_read_ms        || 0);
+      const agentMs = Math.round(at.total_agent_ready_ms|| 0);
+      const trips   = at.network_roundtrips || 0;
+      const grepCpu = Math.round(at.grep_cpu_pct || 0);
+      const elapsed = Math.round((result.elapsed_s || 0) * 1000);
+      const rate    = cloneMs > 0
+        ? FMT.bytes((result.bytes_proxy_out || 0) / cloneMs * 1000) + '/s'
+        : '?';
+      // sanitise values for Mermaid label text
+      const e = v => String(v).replace(/[<>"&]/g, '');
+
+      if (result.approach === 'naive') {
+        return `sequenceDiagram
+    participant VM as Agent VM (Docker)
+    participant P as Proxy :9419
+    participant G as Git Daemon :9418
+    Note over VM: Fresh container, empty filesystem
+    rect rgb(15,30,90)
+    Note over VM,G: Phase 1 - git clone --depth=1 --branch=main (${e(cloneMs)}ms)
+    VM->>P: TCP connect + git-upload-pack handshake
+    P->>G: forward
+    G-->>P: ref advertisement and server capabilities
+    P-->>VM: refs (~1 KiB)
+    VM->>P: want HEAD depth=1 [up ${e(bIn)}, NO blob filter - request ALL blobs]
+    P->>G: forward
+    G-->>P: PACK ${e(bOut)} - 1 commit + trees + all 5826 blobs
+    P-->>VM: down ${e(bOut)} in ${e(cloneMs)}ms [avg ${e(rate)}]
+    Note over VM: Unpack: 5826 files on disk, 183 MB total
+    end
+    rect rgb(80,15,15)
+    Note over VM: Phase 2 - Agent task: find symbol ClassDef (${e(symMs)}ms)
+    Note over VM: grep -r across 5826 files in workspace
+    Note over VM: CPU peak ${e(grepCpu)}%, wall ${e(symMs)}ms, hits in 47 files
+    Note over VM: Read 3 additional files from disk - 0 network roundtrips
+    end
+    Note over VM: Total ${e(elapsed)}ms - network roundtrips 0 - grep CPU ${e(grepCpu)}%`;
+      }
+
+      if (result.approach === 'blobless') {
+        return `sequenceDiagram
+    participant VM as Agent VM (Docker)
+    participant P as Proxy :9419
+    participant G as Git Daemon :9418
+    Note over VM: Fresh container, empty filesystem
+    rect rgb(60,30,10)
+    Note over VM,G: Phase 1 - git clone --filter=blob:none --depth=1 (${e(cloneMs)}ms)
+    VM->>P: TCP connect + git-upload-pack handshake
+    P->>G: forward
+    G-->>P: ref advertisement + partial clone capability
+    P-->>VM: refs, filter supported
+    VM->>P: want HEAD filter=blob:none depth=1 [up ${e(bIn)}]
+    P->>G: forward
+    G-->>P: PACK ${e(bOut)} - commits + trees ONLY, 0 blobs
+    P-->>VM: down ${e(bOut)} in ${e(cloneMs)}ms [avg ${e(rate)}]
+    Note over VM: Trees on disk, no file content yet
+    VM->>P: promisor: want ast.py blob OID [lazy fetch 1 - checkout]
+    P->>G: forward
+    G-->>P: PACK: ast.py blob only
+    P-->>VM: down ast.py content
+    end
+    rect rgb(60,40,10)
+    Note over VM: Phase 2 - Agent task: find ClassDef (${e(symMs)}ms grep + ${e(fileMs)}ms reads)
+    Note over VM: grep checked-out files only - CPU ${e(grepCpu)}%, ${e(symMs)}ms
+    Note over VM: WARNING: search incomplete, only checked-out files visible
+    Note over VM: Need ${e(trips)} more files - one separate lazy promisor fetch each
+    VM->>P: promisor: want file-2 blob OID [lazy fetch 2]
+    P->>G: forward
+    G-->>P: PACK: file-2 blob
+    P-->>VM: down file-2
+    VM->>P: promisor: want file-3 blob OID [lazy fetch 3]
+    P->>G: forward
+    G-->>P: PACK: file-3 blob
+    P-->>VM: down file-3
+    VM->>P: promisor: want file-4 blob OID [lazy fetch 4]
+    P->>G: forward
+    G-->>P: PACK: file-4 blob
+    P-->>VM: down file-4
+    end
+    Note over VM: Total ${e(elapsed)}ms - roundtrips ${e(trips+1)} - grep CPU ${e(grepCpu)}%`;
+      }
+
+      if (result.approach === 'agentcache') {
+        return `sequenceDiagram
+    participant VM as Agent VM (Docker)
+    participant P as Proxy :9419
+    participant G as Git Daemon :9418
+    participant S as AgentCache :8765
+    Note over VM: Fresh container, empty filesystem
+    rect rgb(10,40,20)
+    Note over VM,G: Phase 1 - git clone --filter=blob:none, full history (${e(cloneMs)}ms)
+    VM->>P: TCP connect + git-upload-pack handshake
+    P->>G: forward
+    G-->>P: ref advertisement + partial clone capability
+    P-->>VM: refs
+    VM->>P: want HEAD filter=blob:none [up ${e(bIn)}, no depth limit]
+    P->>G: forward
+    G-->>P: PACK ${e(bOut)} - all 125k commits + all trees, 0 blobs
+    P-->>VM: down ${e(bOut)} in ${e(cloneMs)}ms [avg ${e(rate)}]
+    Note over VM: Full history on disk: git log, blame, diff all work
+    end
+    rect rgb(10,40,60)
+    Note over VM,S: Phase 2 - Symbol lookup via AgentCache service (${e(symMs)}ms)
+    VM->>S: GET /cache/commit/symbol/ClassDef [HTTP, does NOT go through proxy]
+    Note over S: Reads pre-computed symbol index from orphaned cache commit
+    S-->>VM: JSON - locations with paths, lines, kinds, OIDs [${e(symMs)}ms, 0 bytes via proxy]
+    Note over VM: Agent knows exact blob OIDs needed - zero grep, zero CPU
+    end
+    rect rgb(10,30,50)
+    Note over VM,G: Phase 3 - Batch fetch all needed blobs, 1 round-trip
+    VM->>P: git fetch origin oid1 oid2 ... [ALL OIDs in one request]
+    P->>G: forward - single pack negotiation
+    G-->>P: PACK: exactly the requested blobs, nothing else
+    P-->>VM: down exact blobs only
+    Note over VM: git cat-file blob oid - read by OID, no checkout needed
+    end
+    Note over VM: Agent-ready ${e(agentMs)}ms - total ${e(elapsed)}ms - roundtrips ${e(trips)} - grep CPU 0%`;
+      }
+
+      return `graph LR\n    A[Unknown approach: ${result.approach}]`;
+    },
+
+    async renderFlowDiagrams(results) {
+      if (typeof mermaid === 'undefined' || !results?.length) return;
+      // Initialise dark theme (safe to call multiple times)
+      mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+      for (const result of results) {
+        const el = document.getElementById('flow-' + result.approach);
+        if (!el) continue;
+        const def = this.generateFlowDiagram(result);
+        const uid = 'mmd-' + result.approach + '-' + Date.now();
+        try {
+          const { svg } = await mermaid.render(uid, def);
+          el.innerHTML = svg;
+          const svgEl = el.querySelector('svg');
+          if (svgEl) { svgEl.style.maxWidth = '100%'; svgEl.style.height = 'auto'; }
+        } catch (err) {
+          // Show the raw Mermaid text as fallback so the user can still read it
+          el.innerHTML =
+            `<details open class="text-xs"><summary class="text-red-400 cursor-pointer">Diagram error (click for source)</summary>` +
+            `<pre class="text-gray-400 whitespace-pre-wrap mt-2 text-xs">${def}</pre></details>`;
+        }
+      }
     },
   };
 }
