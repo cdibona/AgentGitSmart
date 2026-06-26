@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -72,6 +73,7 @@ class ResultStorage:
             ("use_real_agent", "ALTER TABLE runs ADD COLUMN use_real_agent INTEGER NOT NULL DEFAULT 0"),
             ("agent_pct", "ALTER TABLE runs ADD COLUMN agent_pct REAL NOT NULL DEFAULT 1.0"),
             ("agent_seed", "ALTER TABLE runs ADD COLUMN agent_seed INTEGER NOT NULL DEFAULT 42"),
+            ("completed_at", "ALTER TABLE runs ADD COLUMN completed_at TEXT"),
         ]
         with self._conn() as conn:
             # Get existing column names
@@ -123,10 +125,11 @@ class ResultStorage:
         results_json = (
             json.dumps([r.model_dump() for r in results]) if results else None
         )
+        completed_at = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             conn.execute(
-                "UPDATE runs SET status=?, results_json=? WHERE run_id=?",
-                (status, results_json, run_id),
+                "UPDATE runs SET status=?, results_json=?, completed_at=? WHERE run_id=?",
+                (status, results_json, completed_at, run_id),
             )
 
     # ------------------------------------------------------------------

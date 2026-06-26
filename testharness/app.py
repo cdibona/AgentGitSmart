@@ -446,6 +446,7 @@ async def _run_experiment(exp_id: str, config: dict) -> None:
         rec["error"] = str(exc)
         emit(f"EXPERIMENT FAILED: {exc}")
     finally:
+        rec["completed_at"] = datetime.now(timezone.utc).isoformat()
         _exp_persist(exp_id)
         if queue:
             queue.put_nowait({"type": "experiment_complete", "status": rec["status"]})
