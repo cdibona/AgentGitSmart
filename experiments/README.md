@@ -1,5 +1,11 @@
 # agentcache experiments
 
+**→ [`RECENT.md`](RECENT.md) — a readable digest of the most recent harness
+runs** (what each run did, per-repo win-vs-naive tables, the per-human-commit
+cache-rebuild load, and the hook-vs-GitHub-Action warm comparison). Regenerate
+with `python scripts/render_experiment_report.py`; raw JSON lives under
+[`results/harness/`](results/harness/).
+
 Three studies that compare the three repo-access methods — **naive**,
 **blobless**, **agentcache** — across the five collected CPython-sized
 projects (`cpython`, `django`, `go`, `git`, `redis`), and probe the

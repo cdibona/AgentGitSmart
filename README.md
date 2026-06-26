@@ -399,12 +399,20 @@ python -m experiments.exp3_hook_update   # does a human push keep the cache curr
 
 ## Results from this installation
 
+**→ [`experiments/RECENT.md`](experiments/RECENT.md) — a readable digest of the
+most recent experiment runs** (what was done, per-repo win-vs-naive tables, the
+per-human-commit cache-rebuild load, and the hook-vs-GitHub-Action warm
+comparison). Regenerate any time with
+`python scripts/render_experiment_report.py`.
+
 The numbers above and below were produced by running the studies **on this
 installation** — a 15-repo polyglot fleet (cpython, django, go, git, redis,
 openai/codex, anthropic-sdk-python, anthropic-cookbook, jq, bat, ripgrep,
 prettier, ohmyzsh, git-lfs, fd). The raw artifacts are committed in
 [`experiments/results/`](experiments/results/):
 
+- [`RECENT.md`](experiments/RECENT.md) — digest of the latest harness runs
+  (raw JSON under [`results/harness/`](experiments/results/harness/))
 - [`SUMMARY.md`](experiments/results/SUMMARY.md) — the full write-up
 - [`exp1_cold_warm.json`](experiments/results/exp1_cold_warm.json) — cold vs warm
   network bytes per repo × method (the data behind the headline table)
