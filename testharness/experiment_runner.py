@@ -28,9 +28,12 @@ Design notes
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import subprocess
 import time
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -44,6 +47,8 @@ from agentcache import hook as hook_mod
 
 REF_PREFIX = "refs/agent-cache"
 EXP_BRANCH_PREFIX = "agentcache-exp"
+
+log = logging.getLogger(__name__)
 
 
 class ExperimentRunner:
@@ -139,7 +144,12 @@ class ExperimentRunner:
             )
             result = payload.get("real_agent_data", payload) or {}
             samples = payload.get("cpu_samples", []) or []
-            cpu_pct = round(max((s[1] for s in samples), default=0.0), 1)
+            # CpuSampler.samples are dicts {"t_ms", "cpu_pct"} (see metrics.py),
+            # NOT (t, pct) tuples.  Indexing with s[1] raised KeyError(1) whose
+            # str() is the opaque "1" — and only on passes long enough for the
+            # 0.2s cgroup sampler to capture a sample (e.g. cold agentcache on a
+            # larger repo), which is why fast passes silently "worked".
+            cpu_pct = round(max((s["cpu_pct"] for s in samples), default=0.0), 1)
             used_docker = True
         else:
             result = await loop.run_in_executor(
@@ -267,6 +277,7 @@ class ExperimentRunner:
 
         for i in range(1, passes + 1):
             cells = {}
+            pass_started_at = datetime.now(timezone.utc).isoformat()
             for method in methods:
                 cell = await self._agent_pass(
                     repo, repo_dir, branch, commit, method, seed0 + i, pct, use_docker
@@ -278,7 +289,12 @@ class ExperimentRunner:
                     f"{cell['wall_s']:.2f}s {tag}"
                     + (f" ERR={cell['error'][:40]}" if cell["error"] else "")
                 )
-            timeline.append({"pass_index": i, "kind": "agent", "commit": commit, "cells": cells})
+            timeline.append({
+                "pass_index": i, "kind": "agent", "commit": commit,
+                "started_at": pass_started_at,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "cells": cells,
+            })
 
             # Insert a human commit in this gap (after pass i), if budgeted.
             if i <= commits_to_place:
@@ -338,9 +354,15 @@ class ExperimentRunner:
             try:
                 campaigns.append(await self._campaign(repo, config, emit))
             except Exception as exc:  # one repo failing must not kill the experiment
-                emit(f"[{repo}] FAILED: {exc}")
+                # Surface the REAL cause: str(exc) alone can be opaque (e.g. a
+                # bare "1" from KeyError(1)).  Log the full traceback to the
+                # journal and store type+message so failures aren't mysterious.
+                log.exception("[%s] campaign failed", repo)
+                tb = traceback.format_exc()
+                detail = f"{type(exc).__name__}: {exc}"
+                emit(f"[{repo}] FAILED: {detail}")
                 campaigns.append({"repo": repo, "files": 0, "timeline": [],
-                                  "summary": {}, "error": str(exc)})
+                                  "summary": {}, "error": detail, "traceback": tb})
         return {"campaigns": campaigns}
 
 
