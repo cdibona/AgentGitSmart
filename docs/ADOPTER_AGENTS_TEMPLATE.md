@@ -105,7 +105,9 @@ git cat-file blob abc123...
 
 This turns "grep the entire repo" (fetch all blobs, scan) into a lookup
 that returns a handful of OIDs, which you fetch in one pack.  Symbols
-are indexed server-side by universal-ctags at push time.
+are indexed server-side by universal-ctags at push time; delta re-indexing
+means only changed files are re-scanned on each push
+(`sudo apt-get install -y universal-ctags` to enable).
 
 ### Manifest (plan before fetching)
 

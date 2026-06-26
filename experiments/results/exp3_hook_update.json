@@ -1,36 +1,36 @@
 {
   "experiment": "hook_update",
-  "generated_at": "2026-06-26T11:09:49",
+  "generated_at": "2026-06-26T11:51:26",
   "branch": "main",
-  "hook_path": "/tmp/exp3-hhil1e8w/repo.git/hooks/post-receive",
+  "hook_path": "/tmp/exp3-80q1zmpx/repo.git/hooks/post-receive",
   "verdict": "PASS",
   "steps": [
     {
       "step": "first_push",
-      "new_oid": "f6ef7ca1d515b1b05e6365e8d5e6c28924f03373",
+      "new_oid": "3d97fc4c3446f5dd05c3748500637b3ef058b56e",
       "cache_built": true,
       "edited_path_in_manifest": true,
-      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/f6ef7ca1d515b1b05e6365e8d5e6c28924f03373 (1 files, 0 symbols, ctags=False, mode=full, reindexed=0)        \nTo /tmp/exp3-hhil1e8w/repo.git\n * [new branch]      HEAD -> main",
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/3d97fc4c3446f5dd05c3748500637b3ef058b56e (1 files, 1 symbols, ctags=True, mode=full, reindexed=1)        \nTo /tmp/exp3-80q1zmpx/repo.git\n * [new branch]      HEAD -> main",
       "load": {
         "mode": "full",
         "parent": null,
-        "files_reindexed": 0,
+        "files_reindexed": 1,
         "files_carried_forward": 0,
-        "content_bytes_materialized": 0
+        "content_bytes_materialized": 32
       }
     },
     {
       "step": "second_push",
-      "new_oid": "668a571368711b7baf8e0f635a96e60443b33ef0",
+      "new_oid": "de2c8cabebd3665ddd74d899422aa9f194a7aa62",
       "cache_built": true,
       "total_cache_refs": 2,
-      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/668a571368711b7baf8e0f635a96e60443b33ef0 (2 files, 0 symbols, ctags=False, mode=full, reindexed=0)        \nTo /tmp/exp3-hhil1e8w/repo.git\n   f6ef7ca..668a571  HEAD -> main",
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/de2c8cabebd3665ddd74d899422aa9f194a7aa62 (2 files, 2 symbols, ctags=True, mode=delta, reindexed=1)        \nTo /tmp/exp3-80q1zmpx/repo.git\n   3d97fc4..de2c8ca  HEAD -> main",
       "load": {
-        "mode": "full",
-        "parent": null,
-        "files_reindexed": 0,
-        "files_carried_forward": 0,
-        "content_bytes_materialized": 0
+        "mode": "delta",
+        "parent": "3d97fc4c3446f5dd05c3748500637b3ef058b56e",
+        "files_reindexed": 1,
+        "files_carried_forward": 1,
+        "content_bytes_materialized": 37
       }
     }
   ]

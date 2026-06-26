@@ -34,6 +34,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Bind host — override via AGENTCACHE_WEB_HOST for tailnet / non-loopback use.
+WEB_HOST="${AGENTCACHE_WEB_HOST:-127.0.0.1}"
+
 # ---------------------------------------------------------------------------
 # Ensure venv exists and has the required packages.
 # ---------------------------------------------------------------------------
@@ -42,6 +45,7 @@ if [[ ! -f .venv/bin/python ]]; then
     python3 -m venv .venv
 fi
 
+# universal-ctags enables the symbol index (recommended): sudo apt-get install -y universal-ctags
 echo "Checking / installing dependencies..."
 .venv/bin/pip install --quiet \
     "fastapi>=0.111" "uvicorn[standard]>=0.29" "aiofiles>=23" \
@@ -69,11 +73,12 @@ mkdir -p testharness/data
 # Start the web server.
 # ---------------------------------------------------------------------------
 export AGENTCACHE_WEB_PORT="$WEB_PORT"
+export AGENTCACHE_WEB_HOST="$WEB_HOST"
 
 echo ""
 echo "════════════════════════════════════════════════════"
 echo "  AgentCache Test Harness"
-echo "  http://127.0.0.1:${WEB_PORT}"
+echo "  http://${WEB_HOST}:${WEB_PORT}"
 echo ""
 echo "  git daemon  → port 9418"
 echo "  proxy       → port 9419 (byte counting)"
@@ -85,12 +90,12 @@ echo ""
 
 if [[ $OPEN_BROWSER -eq 1 ]]; then
     # Give uvicorn a moment to bind before opening the browser.
-    (sleep 2 && xdg-open "http://127.0.0.1:${WEB_PORT}" 2>/dev/null \
-        || open "http://127.0.0.1:${WEB_PORT}" 2>/dev/null || true) &
+    (sleep 2 && xdg-open "http://${WEB_HOST}:${WEB_PORT}" 2>/dev/null \
+        || open "http://${WEB_HOST}:${WEB_PORT}" 2>/dev/null || true) &
 fi
 
 exec .venv/bin/uvicorn testharness.app:app \
-    --host 127.0.0.1 \
+    --host "$WEB_HOST" \
     --port "$WEB_PORT" \
     --reload \
     --reload-dir testharness \

@@ -66,7 +66,7 @@ reflects the human's change, and a second push produces a second cache ref.
 
 | Mechanism | Built by | Keyed by | Lifecycle |
 |-----------|----------|----------|-----------|
-| Cache (manifest + symbols) | post-receive hook **or** lazy gen on first request | commit OID | immutable per commit; new commit → new cache |
+| Cache (manifest + symbols) | post-receive hook **or** lazy gen on first request | commit OID | immutable per commit; new commit → new cache; symbol index uses delta re-indexing (changed files only per push); `meta.json` includes a `generation` block with `mode`, `files_reindexed`, `files_carried_forward`, and `fallback_reason` |
 | Bundle (history seed) | post-receive hook (or pre-built) | branch | refreshed on push |
 | Erase | `agentcache-uninstall` | — | removes all side refs + gc |
 

@@ -7,3 +7,5 @@ pytest>=8.0
 fastapi>=0.111
 uvicorn[standard]>=0.29
 aiofiles>=23
+
+# System prerequisite (not pip): sudo apt-get install -y universal-ctags  — builds the symbol index; without it symbols are empty.

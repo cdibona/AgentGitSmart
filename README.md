@@ -136,6 +136,12 @@ cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
 chmod +x /srv/git/myrepo.git/hooks/post-receive
 ```
 
+Install [universal-ctags](https://github.com/universal-ctags/ctags) to enable the symbol index (highly recommended — without it the index is empty and every push triggers a full rebuild instead of a delta):
+
+```bash
+sudo apt-get install -y universal-ctags   # recommended: builds the symbol index; without it symbols are empty and every push rebuilds full
+```
+
 The promisor repo must allow filtered and by-OID fetches:
 
 ```bash
@@ -154,6 +160,56 @@ Endpoints: `/healthz`, `/caches`, `/cache/<commit>/manifest`,
 `/cache/<commit>/symbol/<name>`, `/cache/<commit>/resolve` (POST). With lazy
 generation enabled, the **first** request for a commit builds the cache on
 demand; later requests (and the `post-receive` hook) reuse it.
+
+## Symbol index: delta mode & load reporting
+
+On every push, agentcache re-ctags **only the changed files** and carries
+forward unchanged symbols from the parent commit's cache
+(`refs/agent-cache/<parent-sha>`), merging everything through
+`canonicalize_symbols()` — a single deterministic chokepoint that guarantees
+**delta output is byte-identical to a full rebuild**
+(preserving the exp2 PRISTINE guarantee).
+
+A full rebuild is used instead — and `fallback_reason` records why — when any
+of the following apply:
+
+- `AGENTCACHE_DELTA_SYMBOLS=false`
+- ctags is not installed (`ctags_unavailable`)
+- root commit (`parent` is `null`; full rebuild, `fallback_reason` omitted)
+- merge commit and `AGENTCACHE_DELTA_ON_MERGE=false` (`merge_commit`)
+- no parent cache exists (`parent_uncached`) or is unreadable (`parent_unreadable`)
+- the parent was built without ctags (`parent_ctags_unavailable`)
+- `GENERATOR_VERSION` mismatch — currently `0.2.0` (`version_mismatch`)
+- `SYMBOLS_SCHEMA` mismatch — currently `2` (`schema_mismatch`)
+- changed-file fraction exceeds `AGENTCACHE_DELTA_MAX_RATIO` (`ratio_threshold`)
+
+Every cache commit embeds a **`generation` block** in `meta.json` that serves
+as the per-push load report:
+
+```json
+{
+  "mode": "full",
+  "parent": "<sha> | null",
+  "files_in_tree": 1234,
+  "files_changed": 12,
+  "files_reindexed": 12,
+  "files_carried_forward": 1222,
+  "content_bytes_materialized": 48200,
+  "symbol_count": 8901,
+  "ctags_available": true,
+  "fallback_reason": null
+}
+```
+
+The same object is returned by `generate_for_commit()` for programmatic use.
+
+Three env vars control delta behaviour (`1/true/yes/on` count as true):
+
+| Variable | Default | Effect |
+|---|---|---|
+| `AGENTCACHE_DELTA_SYMBOLS` | `true` | Enable delta re-indexing |
+| `AGENTCACHE_DELTA_ON_MERGE` | `true` | Allow delta on merge commits (first parent only) |
+| `AGENTCACHE_DELTA_MAX_RATIO` | *(unset)* | Fall back to full when changed/total exceeds this ratio |
 
 ## Making your repo agent-aware
 
@@ -259,6 +315,51 @@ uvicorn testharness.app:app --host 127.0.0.1 --port 8080
 # open http://127.0.0.1:8080  → "Experiments" tab
 ```
 
+### Serving over a tailnet (Tailscale)
+
+To make the harness reachable across your tailnet, set `AGENTCACHE_WEB_HOST`
+to your tailnet IP and pass it to uvicorn:
+
+```bash
+AGENTCACHE_WEB_HOST=100.107.70.97 AGENTCACHE_WEB_PORT=8090 \
+  uvicorn testharness.app:app --host 100.107.70.97 --port 8090
+```
+
+`start.sh` picks up both variables automatically, so
+`AGENTCACHE_WEB_HOST=100.107.70.97 bash testharness/start.sh --port 8090`
+works too.
+
+**Persistent service (systemd `--user`):**
+
+```ini
+# ~/.config/systemd/user/agentcache-harness.service
+[Unit]
+Description=AgentCache Test Harness
+
+[Service]
+WorkingDirectory=/path/to/AgentCache
+Environment=AGENTCACHE_WEB_HOST=100.107.70.97
+Environment=AGENTCACHE_WEB_PORT=8090
+ExecStart=/path/to/AgentCache/.venv/bin/uvicorn \
+    testharness.app:app --host 100.107.70.97 --port 8090
+Restart=always
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user enable --now agentcache-harness
+# To survive logout / start at boot without an interactive session:
+sudo loginctl enable-linger $USER
+```
+
+**Optional HTTPS overlay via Tailscale:**
+
+```bash
+sudo tailscale serve --bg --https=8443 http://100.107.70.97:8090
+```
+
 What it measures, for three access strategies side by side:
 
 | Strategy | What it does |
@@ -326,7 +427,7 @@ the **Experiments** tab in the web UI) and the JSON files will be rewritten.
 agentcache/
   config.py        # .env-driven config
   manifest.py      # flat path->oid manifest (Index.read_tree; skips gitlinks)
-  symbols.py       # universal-ctags symbol index (degrades w/o ctags)
+  symbols.py       # universal-ctags symbol index + delta re-indexing (SYMBOLS_SCHEMA=2; degrades w/o ctags; install: sudo apt-get install -y universal-ctags)
   cache_writer.py  # orphan commit + refs/agent-cache/<oid> (read + write)
   bundle.py        # blobless bootstrap bundle (+ verify)
   hook.py          # post-receive orchestration (fail-open: never blocks a push)

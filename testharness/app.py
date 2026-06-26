@@ -53,6 +53,7 @@ GIT_PORT = int(os.environ.get("AGENTCACHE_GIT_PORT", "9418"))
 PROXY_PORT = int(os.environ.get("AGENTCACHE_PROXY_PORT", "9419"))
 SVC_PORT = int(os.environ.get("AGENTCACHE_SVC_PORT", "8765"))
 WEB_PORT = int(os.environ.get("AGENTCACHE_WEB_PORT", "8080"))
+WEB_HOST = os.environ.get("AGENTCACHE_WEB_HOST", "127.0.0.1")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -152,7 +153,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     _EXP_DIR.mkdir(parents=True, exist_ok=True)
 
-    log.info("Test harness ready on http://127.0.0.1:%d", WEB_PORT)
+    log.info("Test harness ready on http://%s:%d", WEB_HOST, WEB_PORT)
     yield
 
     await _proxy.stop()
