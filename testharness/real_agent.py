@@ -178,6 +178,28 @@ def _add_exclamation(content: str, rng: random.Random, prefixes: tuple = ("#",))
 
 # ── main agent logic ───────────────────────────────────────────────────────
 
+# ── agentcache fallback helper ────────────────────────────────────────────────
+
+
+def _apply_empty_manifest_fallback(
+    agentcache_files: list,
+    fallback_files: list,
+    metrics: dict,
+) -> list:
+    """Downgrade from an empty agentcache manifest to blobless discovery.
+
+    If *agentcache_files* is non-empty, returns it unchanged (no fallback).
+    If empty (tainted, stale, or mismatched manifest), records the reason in
+    *metrics*, clears ``agentcache_detected``, and returns *fallback_files*.
+    Pure aside from the *metrics* dict mutation; no I/O performed here.
+    """
+    if agentcache_files:
+        return agentcache_files
+    metrics["fallback"] = "blobless (empty or tainted manifest)"
+    metrics["agentcache_detected"] = False
+    return fallback_files
+
+
 def run_real_agent(
     approach: str,
     repo_url: str,
@@ -276,6 +298,19 @@ def run_real_agent(
                 all_py = [
                     e["path"] for e in entries if e["path"].endswith(SOURCE_EXTS)
                 ]
+                # Graceful fallback: empty/tainted manifest → blobless ls-tree.
+                if not all_py:
+                    r = _git("ls-tree", "-r", "--name-only", "HEAD",
+                             cwd=clone_dir, timeout=30)
+                    blobless_files = [
+                        line for line in r.stdout.splitlines()
+                        if line.endswith(SOURCE_EXTS)
+                    ]
+                    all_py = _apply_empty_manifest_fallback(
+                        agentcache_files=[],
+                        fallback_files=blobless_files,
+                        metrics=metrics,
+                    )
             else:
                 # Service down: fall back to git ls-tree (still blobless).
                 r = _git("ls-tree", "-r", "--name-only", "HEAD",

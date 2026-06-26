@@ -23,13 +23,15 @@ from flask import Flask, jsonify, request
 from .config import AgentCacheConfig
 from . import cache_writer
 from . import hook as hook_mod
+from . import GENERATOR_VERSION
+from .symbols import SYMBOLS_SCHEMA
 
 
 def create_app(cfg: AgentCacheConfig) -> Flask:
     app = Flask(__name__)
     repo = pygit2.Repository(cfg.repo_dir)
 
-    # ── Lazy generation ────────────────────────────────────────────────
+    # ── Lazy generation ────────────────────────────────────────────────────────
     # If a cache is requested for a commit that has none, build it on the
     # spot (first agent pays a one-time cost; everyone after reuses it).
     # Per-commit locks prevent two simultaneous first-agents from racing to
@@ -45,6 +47,8 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
         """
         ref = f"{cfg.ref_prefix.rstrip('/')}/{commit}"
         if ref in repo.references:
+            # Cache exists — check it's still fresh before serving.
+            _ensure_fresh(commit)
             return True
         if not cfg.lazy_generation:
             return False
@@ -80,6 +84,53 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
             repo, commit, "symbols.json", ref_prefix=cfg.ref_prefix
         )
         return json.loads(raw)
+
+    # ── Staleness helpers ──────────────────────────────────────────────────────
+
+    def _ensure_fresh(commit: str) -> None:
+        """Re-check manifest/symbols versions; force-regenerate if stale.
+
+        Reads the cached manifest's ``generator_version`` and the symbols'
+        ``schema``/``generator_version``.  If either is stale (mismatch with
+        the current constants), regenerates the cache and clears the LRU.
+        Safe and idempotent — never loops; exceptions are suppressed so
+        staleness checks never break serving.
+        """
+        try:
+            raw_man = cache_writer.read_artifact(
+                repo, commit, "manifest.json", ref_prefix=cfg.ref_prefix
+            )
+            man_data = json.loads(raw_man)
+            stale = man_data.get("generator_version") != GENERATOR_VERSION
+            if not stale:
+                # Cheap short-circuit: only read symbols if manifest is current.
+                raw_sym = cache_writer.read_artifact(
+                    repo, commit, "symbols.json", ref_prefix=cfg.ref_prefix
+                )
+                sym_data = json.loads(raw_sym)
+                stale = (
+                    sym_data.get("schema") != SYMBOLS_SCHEMA
+                    or sym_data.get("generator_version") != GENERATOR_VERSION
+                )
+            if stale:
+                hook_mod.generate_for_commit(repo, commit, cfg)
+                _manifest_index.cache_clear()
+        except Exception:
+            pass  # Never break serving due to freshness-check errors.
+
+    def _any_path_in_tree(commit: str, paths: List[str]) -> bool:
+        """Return True if ANY of *paths* exists in the real git tree for *commit*.
+
+        Uses pygit2's ``<rev>:<path>`` revparse syntax — cheap, no blob fetch.
+        Short-circuits on the first hit.
+        """
+        for path in paths:
+            try:
+                repo.revparse_single(f"{commit}:{path}")
+                return True
+            except Exception:
+                continue
+        return False
 
     @app.get("/healthz")
     def healthz():
@@ -123,7 +174,7 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
             commit=commit,
             ctags_available=syms.get("ctags_available", False),
             locations=locations,
-            fetch_oids=sorted({l["oid"] for l in locations if "oid" in l}),
+            fetch_oids=sorted({loc["oid"] for loc in locations if "oid" in loc}),
         )
 
     @app.post("/cache/<commit>/resolve")
@@ -136,20 +187,43 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
             idx = _manifest_index(commit)
         except KeyError as exc:
             return jsonify(error=str(exc)), 404
-        resolved, missing = [], []
-        for p in paths:
-            entry = idx.get(p)
-            if entry is None:
-                missing.append(p)
-            else:
-                resolved.append(
-                    {
-                        "path": p,
-                        "oid": entry["oid"],
-                        "size": entry["size"],
-                        "mode": entry["mode"],
-                    }
-                )
+
+        def _resolve_against(index, path_list):
+            res, mis = [], []
+            for p in path_list:
+                entry = index.get(p)
+                if entry is None:
+                    mis.append(p)
+                else:
+                    res.append(
+                        {
+                            "path": p,
+                            "oid": entry["oid"],
+                            "size": entry["size"],
+                            "mode": entry["mode"],
+                        }
+                    )
+            return res, mis
+
+        resolved, missing = _resolve_against(idx, paths)
+        rebuilt = False
+
+        # ── Taint probe ───────────────────────────────────────────────────────
+        # If any "missing" path actually exists in the commit's real git tree,
+        # the manifest is stale/corrupt for this commit.  Rebuild ONCE, then
+        # re-resolve the full original path list against the fresh manifest.
+        # Short-circuit: at most one rebuild per request.
+        if missing and _any_path_in_tree(commit, missing):
+            try:
+                target = repo.revparse_single(commit).peel(pygit2.Commit)
+                hook_mod.generate_for_commit(repo, str(target.id), cfg)
+                _manifest_index.cache_clear()
+                fresh_idx = _manifest_index(commit)
+                resolved, missing = _resolve_against(fresh_idx, paths)
+                rebuilt = True
+            except Exception:
+                pass  # defensive: keep original results on any failure
+
         return jsonify(
             commit=commit,
             resolved=resolved,
@@ -157,6 +231,7 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
             # Hand the agent exactly what to put after `git fetch origin ...`
             fetch_oids=[r["oid"] for r in resolved],
             total_bytes=sum(r["size"] or 0 for r in resolved),
+            rebuilt=rebuilt,
         )
 
     @app.get("/cache/<commit>/agents.md")
