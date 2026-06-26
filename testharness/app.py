@@ -33,7 +33,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import docker_runner
-from .experiment_runner import ExperimentRunner
+from .experiment_runner import ExperimentRunner, describe_experiment
 from .models import ExperimentConfig, RunConfig, SystemStatus
 from .processes import AgentCacheService, GitDaemon
 from .proxy import ByteCountingProxy
@@ -412,11 +412,15 @@ async def start_experiment(config: ExperimentConfig) -> dict:
         raise HTTPException(status_code=400, detail="No valid repos selected")
 
     exp_id = uuid.uuid4().hex[:8]
+    exp_config = config.model_dump() | {"repos": chosen}
     rec = {
         "experiment_id": exp_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "running",
-        "config": config.model_dump() | {"repos": chosen},
+        # Human-readable "precisely what was done" header (refined once the
+        # runner resolves whether Docker isolation is actually available).
+        "description": describe_experiment(exp_config, bool(exp_config.get("use_docker", True))),
+        "config": exp_config,
         "campaigns": [],
         "log": [],
     }
@@ -439,6 +443,8 @@ async def _run_experiment(exp_id: str, config: dict) -> None:
     try:
         result = await _exp_runner.run(exp_id, config, emit)
         rec["campaigns"] = result["campaigns"]
+        if result.get("description"):
+            rec["description"] = result["description"]
         rec["status"] = "complete"
     except Exception as exc:
         log.exception("experiment %s failed", exp_id)

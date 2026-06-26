@@ -226,11 +226,17 @@ class ExperimentRunner:
             pass
         return commit
 
-    def _hook_build(self, repo_dir: str, commit: str) -> None:
-        """Pre-build the cache for *commit*, exactly as the post-receive hook would."""
+    def _hook_build(self, repo_dir: str, commit: str) -> dict:
+        """Pre-build the cache for *commit*, exactly as the post-receive hook would.
+
+        Returns the ``generation`` (load) block so the human step that triggered
+        it can be measured: mode (full/delta), files reindexed/carried, bytes
+        materialized, symbol count, fallback reason, etc.
+        """
         cfg = AgentCacheConfig(repo_dir=repo_dir)
         repo = pygit2.Repository(repo_dir)
-        hook_mod.generate_for_commit(repo, commit, cfg)
+        result = hook_mod.generate_for_commit(repo, commit, cfg)
+        return result.get("generation", {}) if isinstance(result, dict) else {}
 
     # ── one repo's campaign ────────────────────────────────────────────
     async def _campaign(
@@ -299,20 +305,45 @@ class ExperimentRunner:
             # Insert a human commit in this gap (after pass i), if budgeted.
             if i <= commits_to_place:
                 human_count += 1
+                human_started_at = datetime.now(timezone.utc).isoformat()
+                _t0 = time.perf_counter()
                 new_commit = self._human_commit(repo_dir, branch, human_count)
+                commit_wall_s = time.perf_counter() - _t0
                 warmed = False
+                hook_gen: Optional[dict] = None
+                hook_wall_s = 0.0
                 if hook_warms:
-                    self._hook_build(repo_dir, new_commit)
+                    _th = time.perf_counter()
+                    hook_gen = self._hook_build(repo_dir, new_commit)
+                    hook_wall_s = time.perf_counter() - _th
                     warmed = True
                 timeline.append({
                     "pass_index": i, "kind": "human", "commit": new_commit,
                     "human_index": human_count, "hook_warmed": warmed,
+                    "started_at": human_started_at,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "files_changed": 1,  # the teammate adds exactly one file
+                    "commit_wall_s": round(commit_wall_s, 4),
+                    "hook_wall_s": round(hook_wall_s, 4),
+                    # The cache-rebuild load the human commit triggered (delta/full,
+                    # files reindexed/carried, bytes materialized, symbols, ...):
+                    "hook": hook_gen,
                     "note": f"teammate commit #{human_count}"
                             + (" (hook pre-warmed cache)" if warmed else ""),
                 })
                 commit = new_commit  # subsequent agent passes target the new HEAD
-                emit(f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
-                     + ("(hook pre-warmed)" if warmed else "(no hook → next agent cold)"))
+                if warmed and hook_gen:
+                    emit(
+                        f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
+                        f"→ hook {hook_gen.get('mode', '?')}: "
+                        f"reindexed={hook_gen.get('files_reindexed', '?')} "
+                        f"carried={hook_gen.get('files_carried_forward', '?')} "
+                        f"{hook_gen.get('content_bytes_materialized', '?'):,}B "
+                        f"{hook_wall_s:.2f}s"
+                    )
+                else:
+                    emit(f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
+                         "(no hook → next agent cold)")
 
         summary = _summarize_campaign(timeline, methods)
 
@@ -349,6 +380,9 @@ class ExperimentRunner:
             emit("Container isolation disabled — running on host (still proxy-measured).")
         config["_use_docker"] = use_docker
 
+        description = describe_experiment(config, use_docker)
+        emit(description)
+
         campaigns = []
         for repo in config["repos"]:
             try:
@@ -363,7 +397,52 @@ class ExperimentRunner:
                 emit(f"[{repo}] FAILED: {detail}")
                 campaigns.append({"repo": repo, "files": 0, "timeline": [],
                                   "summary": {}, "error": detail, "traceback": tb})
-        return {"campaigns": campaigns}
+        return {"description": description, "campaigns": campaigns}
+
+
+def describe_experiment(config: dict, use_docker: bool) -> str:
+    """Human-readable summary of precisely what an experiment run does.
+
+    Stored at the top of each experiment history so you can tell at a glance what
+    was measured, without decoding the raw config.
+    """
+    repos = config.get("repos", []) or []
+    methods = config.get("methods", []) or []
+    passes = int(config.get("passes", 0) or 0)
+    pct = config.get("pct", 0)
+    seed = config.get("seed", 0)
+    human_commits = int(config.get("human_commits", 0) or 0)
+    hook_warms = bool(config.get("hook_warms", False))
+
+    isolation = (
+        "each agent pass runs in a fresh, disposable Docker container"
+        if use_docker
+        else "agent passes run on the host (no container isolation)"
+    )
+    if human_commits:
+        human = (
+            f"{human_commits} teammate (human) commit(s) interleaved between agent passes, "
+            + (
+                "each pre-warming the cache via the post-receive hook "
+                "(the next agent stays warm)"
+                if hook_warms
+                else "with no hook warming (the next agent goes cold)"
+            )
+        )
+    else:
+        human = "no human commits"
+
+    return (
+        f"Cache experiment over {len(repos)} repo(s) "
+        f"[{', '.join(repos) if repos else '-'}]: "
+        f"{passes} agent pass(es) per repo (pass 1 = COLD/builds the cache, "
+        f"later passes = WARM/steady state); methods compared: "
+        f"{', '.join(methods) if methods else '-'}; the agent edits {pct}% of "
+        f"source files each pass (seed {seed}); {human}; {isolation}. "
+        f"Agent network cost is measured end-to-end through a byte-counting proxy; "
+        f"each human step records its own wall time and the cache-rebuild load it "
+        f"triggered (delta vs full, files reindexed/carried-forward, bytes materialized)."
+    )
 
 
 def _summarize_campaign(timeline: list[dict], methods: list[str]) -> dict:

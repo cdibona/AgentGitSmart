@@ -84,6 +84,7 @@ class RunSummary(BaseModel):
     branch: str
     target_paths: List[str]
     approaches: List[str]
+    description: Optional[str] = None  # human-readable "what was done"
 
 
 class RunDetail(RunSummary):

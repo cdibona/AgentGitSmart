@@ -31,6 +31,37 @@ from .models import ApproachResult, RunConfig, RunDetail, RunSummary
 log = logging.getLogger(__name__)
 
 
+def describe_run(
+    *,
+    repo_name: str,
+    branch: str,
+    approaches: List[str],
+    num_runs: int,
+    use_docker: bool,
+    use_real_agent: bool,
+    agent_pct: float,
+    latency_ms: int = 0,
+) -> str:
+    """Human-readable summary of precisely what a single benchmark run did."""
+    isolation = (
+        "each run in a fresh, disposable Docker container"
+        if use_docker
+        else "runs on the host (no container isolation)"
+    )
+    agent = (
+        f"a real agent task editing {agent_pct}% of source files"
+        if use_real_agent
+        else f"a simulated agent touching {agent_pct}% of source files"
+    )
+    latency = f"; {latency_ms}ms simulated network latency" if latency_ms else ""
+    return (
+        f"Benchmark on {repo_name} (branch {branch}): compares approaches "
+        f"{', '.join(approaches) if approaches else '-'} over {num_runs} run(s) each, "
+        f"with {agent}, {isolation}{latency}. "
+        f"Network cost is measured end-to-end through a byte-counting proxy."
+    )
+
+
 class ResultStorage:
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
@@ -203,6 +234,7 @@ class ResultStorage:
         except (IndexError, KeyError):
             agent_seed = 42
 
+        approaches = json.loads(row["approaches"])
         return RunDetail(
             run_id=row["run_id"],
             created_at=row["created_at"],
@@ -210,7 +242,17 @@ class ResultStorage:
             repo_name=row["repo_name"],
             branch=row["branch"],
             target_paths=json.loads(row["target_paths"]),
-            approaches=json.loads(row["approaches"]),
+            approaches=approaches,
+            description=describe_run(
+                repo_name=row["repo_name"],
+                branch=row["branch"],
+                approaches=approaches,
+                num_runs=row["num_runs"],
+                use_docker=use_docker,
+                use_real_agent=use_real_agent,
+                agent_pct=agent_pct,
+                latency_ms=latency_ms,
+            ),
             num_runs=row["num_runs"],
             results=results,
             use_docker=use_docker,
