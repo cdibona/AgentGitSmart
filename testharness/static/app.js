@@ -37,6 +37,7 @@ function app() {
                docker_available: false },
     dbStats: {},
     recentRuns: [],
+    navFeed: [],       // merged tests + experiments, newest-first, capped at 50
     historyRuns: [],
     currentRun: null,
     logLines: [],
@@ -124,24 +125,68 @@ function app() {
     // ── status & data ─────────────────────────────────────────────────────
     async refreshStatus() {
       try {
-        const [st, runs] = await Promise.all([
+        const [st, runsData, expsData] = await Promise.all([
           fetch('/api/status').then(r => r.json()),
           fetch('/api/runs').then(r => r.json()),
+          fetch('/api/experiments').then(r => r.json()),
         ]);
         this.status = st;
-        this.recentRuns = (runs.runs || []).slice(0, 8);
-        this.historyRuns = runs.runs || [];
+        this.recentRuns = (runsData.runs || []).slice(0, 8);
+        this.historyRuns = runsData.runs || [];
         // Update docker toggle label if status changed
         this.form.use_docker = st.docker_available;
+        this._mergeNavFeed(runsData.runs, expsData.experiments);
       } catch (e) { /* network down — ignore */ }
     },
 
     async loadHistory() {
       try {
-        const d = await fetch('/api/runs').then(r => r.json());
-        this.historyRuns = d.runs || [];
+        const [runsData, expsData] = await Promise.all([
+          fetch('/api/runs').then(r => r.json()),
+          fetch('/api/experiments').then(r => r.json()),
+        ]);
+        this.historyRuns = runsData.runs || [];
         this.recentRuns = this.historyRuns.slice(0, 8);
+        this._mergeNavFeed(runsData.runs, expsData.experiments);
       } catch(e) {}
+    },
+
+    // ── nav feed (merged tests + experiments) ──────────────────────────────
+    async loadNavFeed() {
+      try {
+        const [runsData, expsData] = await Promise.all([
+          fetch('/api/runs').then(r => r.json()),
+          fetch('/api/experiments').then(r => r.json()),
+        ]);
+        this._mergeNavFeed(runsData.runs, expsData.experiments);
+      } catch(e) {}
+    },
+
+    _mergeNavFeed(runs, experiments) {
+      const testItems = (runs || []).map(r => ({
+        _type: 'test',
+        _id: r.run_id,
+        created_at: r.created_at || '',
+        status: r.status,
+        label: r.run_id,
+        sublabel: [r.repo_name, r.branch].filter(Boolean).join(' / '),
+      }));
+      const expItems = (experiments || []).map(e => {
+        const repos = e.config?.repos || [];
+        const passes = e.config?.passes || 0;
+        return {
+          _type: 'experiment',
+          _id: e.experiment_id,
+          created_at: e.created_at || '',
+          status: e.status,
+          label: e.experiment_id,
+          sublabel: repos.length + (repos.length === 1 ? ' repo' : ' repos') +
+                    ' · ' + passes + (passes === 1 ? ' pass' : ' passes'),
+        };
+      });
+      const merged = [...testItems, ...expItems];
+      merged.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      this.navFeed = merged.slice(0, 50);
     },
 
     // ── presets ───────────────────────────────────────────────────────────
@@ -235,6 +280,7 @@ function app() {
             this._renderExpCharts();
           });
           this.loadExperiments();
+          this.loadNavFeed();
         } else if (event.type === 'stream_end') {
           if (this._expSse === es) { es.close(); this._expSse = null; }
         }

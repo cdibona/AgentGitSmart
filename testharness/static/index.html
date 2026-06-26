@@ -64,17 +64,23 @@
         No repos — run setup_repo.sh
       </div>
 
-      <p class="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-5 mb-1">Recent Runs</p>
-      <template x-for="run in recentRuns" :key="run.run_id">
-        <button @click="openRun(run.run_id)"
+      <p class="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-5 mb-1">Recent Activity</p>
+      <template x-for="item in navFeed" :key="item._type + '-' + item._id">
+        <button @click="item._type === 'test' ? openRun(item._id) : openExperiment(item._id)"
           class="w-full text-left px-3 py-2 hover:bg-gray-800 transition border-b border-gray-800">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-mono text-indigo-300" x-text="run.run_id"></span>
-            <span :class="statusColor(run.status)" class="text-xs rounded px-1" x-text="run.status"></span>
+          <div class="flex items-center justify-between gap-1">
+            <span class="text-xs font-mono text-indigo-300 truncate min-w-0" x-text="item.label"></span>
+            <div class="flex items-center gap-1 shrink-0">
+              <span :class="item._type === 'experiment' ? 'bg-violet-900 text-violet-300' : 'bg-gray-700 text-gray-500'"
+                class="text-xs rounded px-1"
+                x-text="item._type === 'experiment' ? 'exp' : 'test'"></span>
+              <span :class="statusColor(item.status)" class="text-xs rounded px-1" x-text="item.status"></span>
+            </div>
           </div>
-          <div class="text-xs text-gray-400 truncate mt-0.5" x-text="run.repo_name + ' / ' + run.branch"></div>
+          <div class="text-xs text-gray-400 truncate mt-0.5" x-text="item.sublabel"></div>
         </button>
       </template>
+      <div x-show="navFeed.length === 0" class="px-3 py-2 text-xs text-gray-600 italic">No runs yet</div>
     </aside>
 
     <!-- Main content -->

@@ -1,10 +1,87 @@
-# Recent AgentCache experiments
+# AgentCache experiment diagnostic
 
-These are real runs from the [test harness](../testharness/) measuring three git-fetch strategies — **naive** (full clone), **blobless** (`--filter=blob:none`), and **agentcache** (targeted blob fetch via the pre-built manifest + symbol cache). Each experiment runs multiple agent passes per repo: **pass 1 is COLD** (agentcache builds its cache from scratch on first access), and **later passes are WARM** (the cache already exists and only the requested blobs are fetched). Each interleaved human commit triggers a server-side cache update via the `post-receive` hook, keeping the next agent warm. **Framing:** naive is the easy win; the real test is agentcache vs blobless, accounting for agentcache's cold-build cost and per-commit warm overhead — see each run's **Cost/benefit** section below.
+This is a **diagnostic report for maintainers**, not a marketing document. Its purpose is to surface both where agentcache helps AND where it falls short vs naive and blobless, so that weak spots can be found and fixed. Data comes from real runs of the [test harness](../testharness/) measuring three git-fetch strategies — **naive** (full clone), **blobless** (`--filter=blob:none`), and **agentcache** (targeted blob fetch via the pre-built manifest + symbol cache). Each experiment runs multiple agent passes per repo: **pass 1 is COLD** (agentcache downloads its bootstrap bundle and builds its cache from scratch), and **later passes are WARM** (only the requested blobs are fetched). **Framing:** naive is the easy strawman; the real test is agentcache vs blobless. agentcache carries two costs that blobless does not: (1) a large COLD bootstrap bundle whose size scales with repo history depth, and (2) a per-commit server-side warm overhead on every human push. Both costs are exposed in detail below.
 
 Regenerate with: `python scripts/render_experiment_report.py`
 
 See also the headless studies: [SUMMARY.md](results/SUMMARY.md) · [exp1 (cold vs warm)](results/exp1_cold_warm.json) · [exp2 (cache taint)](results/exp2_taint.json) · [exp3 (hook update)](results/exp3_hook_update.json)
+
+---
+
+## Where agentcache has holes (improvement targets)
+
+The entries below are engineering improvement targets, not edge-cases. Data is aggregated across all featured experiments; repos appearing in multiple runs are de-duplicated (worst value kept).
+
+### 1. Cold-start penalty (bootstrap bundle scales with history)
+
+agentcache's cold-start downloads a blobless bootstrap bundle. On repos with deep history this bundle dwarfs the blobless cold fetch and can exceed even naive warm bytes. This is the largest structural hole.
+
+| Repo | agentcache cold | blobless cold | ratio (agentcache ÷ blobless) |
+|------|----------------:|--------------:|------------------------------:|
+| git.git | 105.6 MiB | 440.8 KiB | 245× |
+| cpython.git | 116.5 MiB | 699.6 KiB | 171× |
+| fd.git | 1.1 MiB | 7.4 KiB | 147× |
+| git-lfs.git | 5.8 MiB | 63.2 KiB | 94× |
+| ohmyzsh.git | 5.3 MiB | 67.2 KiB | 81× |
+| django.git | 39.1 MiB | 543.7 KiB | 74× |
+| go.git | 85.4 MiB | 1.3 MiB | 68× |
+| redis.git | 10.5 MiB | 199.1 KiB | 54× |
+| bat.git | 2.3 MiB | 55.7 KiB | 43× |
+| ripgrep.git | 1.5 MiB | 43.1 KiB | 37× |
+| prettier.git | 16.6 MiB | 591.5 KiB | 29× |
+| codex.git | 19.6 MiB | 931.8 KiB | 22× |
+| anthropic-cookbook.git | 557.4 KiB | 43.6 KiB | 13× |
+| jq.git | 1.2 MiB | 106.0 KiB | 12× |
+| anthropic-sdk-python.git | 858.9 KiB | 95.8 KiB | 9× |
+
+> **TODO — reduce bundle size:** Worst case is **git.git** at 105.6 MiB cold vs 440.8 KiB for blobless (245× penalty). On deep-history repos (cpython, git, go) the bootstrap bundle is the dominant agent network cost. Investigate partial-history bundles or lazy/on-demand bundle construction.
+
+### 2. Marginal warm win (< 25% saving vs blobless)
+
+Repos where agentcache's warm-pass byte saving over blobless is small. The vs-naive win is large, but that is the easy case; if blobless already fetches only a few blobs, agentcache adds little.
+
+| Repo | blobless warm | agentcache warm | saving vs blobless |
+|------|-------------:|-----------------:|--------------------:|
+| fd.git | 12.9 KiB | 11.3 KiB | 12.4% |
+| ripgrep.git | 51.5 KiB | 42.6 KiB | 17.4% |
+| codex.git | 968.8 KiB | 745.2 KiB | 23.1% |
+| redis.git | 249.2 KiB | 187.5 KiB | 24.8% |
+
+> **TODO — improve warm selectivity:** On lean repos like **fd.git** the warm saving is only 12.4% vs blobless. Consider skipping or opt-in-only agentcache on repos where the agent's file edit set is small relative to total blobs.
+
+### 3. Impractical break-even (> 100 warm passes)
+
+Repos where agentcache needs more than 100 warm passes to repay its cold-start overhead vs blobless. In realistic agent workflows this break-even is rarely if ever reached, making blobless the better default for these repos.
+
+| Repo | break-even passes | cold overhead vs blobless | warm saved/pass |
+|------|------------------:|---------------------------:|----------------:|
+| fd.git | 715 | 1.1 MiB | 1.5 KiB |
+| git.git | 682 | 105.2 MiB | 158.0 KiB |
+| cpython.git | 541 | 115.8 MiB | 219.4 KiB |
+| git-lfs.git | 203 | 5.7 MiB | 29.0 KiB |
+| redis.git | 172 | 10.3 MiB | 61.7 KiB |
+| ripgrep.git | 172 | 1.5 MiB | 8.9 KiB |
+| go.git | 148 | 84.1 MiB | 585.4 KiB |
+| django.git | 108 | 38.6 MiB | 366.7 KiB |
+
+> **TODO — gate on repo heuristics:** 8 repo(s) have break-even > 100 passes (worst: **fd.git** at 715 passes). For these repos, blobless is the practical default. Fix: gate agentcache on a repo-size or history-depth heuristic, or reduce the bundle footprint on shallow histories.
+
+### 4. Expensive per-commit warm overhead (hook wall > 1 s)
+
+Every human push triggers a server-side index rebuild that naive and blobless don't pay at all. High hook wall times are a continuous maintenance tax on developer velocity.
+
+| Repo | max hook wall (s) |
+|------|------------------:|
+| go.git | 15.081s |
+| anthropic-cookbook.git | 7.330s |
+| cpython.git | 6.483s |
+| codex.git | 4.601s |
+| django.git | 2.812s |
+| git.git | 1.888s |
+| prettier.git | 1.613s |
+| redis.git | 1.534s |
+
+> **TODO — profile and async-ify the hook:** 8 repo(s) have hook wall > 1 s per human push (worst: **go.git** at 15.1s). Profile the hot path for large symbol-count repos; consider async or deferred indexing so the push completes immediately.
 
 ---
 
@@ -32,27 +109,47 @@ Ran 2026-06-26 22:22 UTC → 2026-06-26 22:39 UTC (988s)
 | redis.git | 1818 | 4.8 MiB | 249.2 KiB | 187.5 KiB | 10.5 MiB | 26.3× |
 | ripgrep.git | 222 | 649.8 KiB | 46.0 KiB | 36.9 KiB | 1.5 MiB | 17.6× |
 
+### Cold start across the three approaches
+
+| Repo | naive cold | blobless cold | agentcache cold | agentcache cold ÷ blobless |
+|------|----------:|-------------:|----------------:|---------------------------:|
+| anthropic-cookbook.git | 153.3 MiB | 45.6 KiB | 559.0 KiB | 12× |
+| anthropic-sdk-python.git | 1.1 MiB | 107.2 KiB | 867.4 KiB | 8× |
+| bat.git | 2.1 MiB | 56.7 KiB | 2.3 MiB | 42× |
+| codex.git | 10.3 MiB | 986.9 KiB | 19.7 MiB | 20× |
+| cpython.git | 43.0 MiB | 699.6 KiB | 116.5 MiB | 171× |
+| django.git | 12.0 MiB | 543.7 KiB | 39.1 MiB | 74× |
+| fd.git | 142.8 KiB | 9.3 KiB | 1.1 MiB | 117× |
+| git-lfs.git | 878.3 KiB | 63.2 KiB | 5.8 MiB | 94× |
+| git.git | 12.4 MiB | 440.8 KiB | 105.6 MiB | 245× |
+| go.git | 36.1 MiB | 1.3 MiB | 85.4 MiB | 68× |
+| jq.git | 1.3 MiB | 106.0 KiB | 1.2 MiB | 12× |
+| ohmyzsh.git | 3.3 MiB | 67.2 KiB | 5.3 MiB | 81× |
+| prettier.git | 6.4 MiB | 591.5 KiB | 16.6 MiB | 29× |
+| redis.git | 4.8 MiB | 199.1 KiB | 10.5 MiB | 54× |
+| ripgrep.git | 650.3 KiB | 47.7 KiB | 1.5 MiB | 33× |
+
 ### Cost / benefit vs blobless (the honest competitor)
 
 | Repo | warm saved/pass vs blobless | warm vs naive | cold overhead vs blobless | break-even (warm passes) | verdict |
 |------|----------------------------:|:--------------:|---------------------------:|:------------------------:|:--------|
-| anthropic-cookbook.git | 27.4 KiB (55.5%) | 7145.4× | 513.3 KiB | 19 | ✓ beats naive immediately; beats blobless after ~19 warm passes |
-| anthropic-sdk-python.git | 48.3 KiB (51.2%) | 24.2× | 760.2 KiB | 16 | ✓ beats naive immediately; beats blobless after ~16 warm passes |
-| bat.git | 44.6 KiB (80.6%) | 200.7× | 2.3 MiB | 53 | ✓ beats naive immediately; beats blobless after ~53 warm passes |
-| codex.git | 223.6 KiB (23.1%) | 14.2× | 18.7 MiB | 86 | ✓ beats naive immediately; beats blobless after ~86 warm passes |
-| cpython.git | 219.4 KiB (26.6%) | 72.6× | 115.8 MiB | 541 | ✓ beats naive immediately; beats blobless after ~541 warm passes |
-| django.git | 366.7 KiB (69.8%) | 77.3× | 38.6 MiB | 108 | ✓ beats naive immediately; beats blobless after ~108 warm passes |
-| fd.git | 1.5 KiB (21.9%) | 26.4× | 1.1 MiB | 715 | ✓ beats naive immediately; beats blobless after ~715 warm passes |
-| git-lfs.git | 29.0 KiB (46.6%) | 26.5× | 5.7 MiB | 203 | ✓ beats naive immediately; beats blobless after ~203 warm passes |
-| git.git | 158.0 KiB (36.6%) | 46.6× | 105.2 MiB | 682 | ✓ beats naive immediately; beats blobless after ~682 warm passes |
-| go.git | 585.4 KiB (45.6%) | 52.9× | 84.1 MiB | 148 | ✓ beats naive immediately; beats blobless after ~148 warm passes |
-| jq.git | 14.0 KiB (48.4%) | 88.2× | 1.1 MiB | 82 | ✓ beats naive immediately; beats blobless after ~82 warm passes |
-| ohmyzsh.git | 54.8 KiB (77.1%) | 209.1× | 5.2 MiB | 98 | ✓ beats naive immediately; beats blobless after ~98 warm passes |
-| prettier.git | 516.2 KiB (90.6%) | 121.7× | 16.1 MiB | 32 | ✓ beats naive immediately; beats blobless after ~32 warm passes |
-| redis.git | 61.7 KiB (24.8%) | 26.3× | 10.3 MiB | 172 | ✓ beats naive immediately; beats blobless after ~172 warm passes |
-| ripgrep.git | 9.1 KiB (19.8%) | 17.6× | 1.5 MiB | 169 | ✓ beats naive immediately; beats blobless after ~169 warm passes |
+| anthropic-cookbook.git | 27.4 KiB (55.5%) | 7145.4× | 513.3 KiB | 19 | break-even vs blobless: ~19 warm passes (513.3 KiB ÷ 27.4 KiB/pass) |
+| anthropic-sdk-python.git | 48.3 KiB (51.2%) | 24.2× | 760.2 KiB | 16 | break-even vs blobless: ~16 warm passes (760.2 KiB ÷ 48.3 KiB/pass) |
+| bat.git | 44.6 KiB (80.6%) | 200.7× | 2.3 MiB | 53 | break-even vs blobless: ~53 warm passes (2.3 MiB ÷ 44.6 KiB/pass) |
+| codex.git | 223.6 KiB (23.1%) | 14.2× | 18.7 MiB | 86 | break-even vs blobless: ~86 warm passes (18.7 MiB ÷ 223.6 KiB/pass) |
+| cpython.git | 219.4 KiB (26.6%) | 72.6× | 115.8 MiB | 541 | agentcache does NOT repay its cold cost vs blobless within ~541 passes — blobless preferred |
+| django.git | 366.7 KiB (69.8%) | 77.3× | 38.6 MiB | 108 | agentcache does NOT repay its cold cost vs blobless within ~108 passes — blobless preferred |
+| fd.git | 1.5 KiB (21.9%) | 26.4× | 1.1 MiB | 715 | agentcache does NOT repay its cold cost vs blobless within ~715 passes — blobless preferred |
+| git-lfs.git | 29.0 KiB (46.6%) | 26.5× | 5.7 MiB | 203 | agentcache does NOT repay its cold cost vs blobless within ~203 passes — blobless preferred |
+| git.git | 158.0 KiB (36.6%) | 46.6× | 105.2 MiB | 682 | agentcache does NOT repay its cold cost vs blobless within ~682 passes — blobless preferred |
+| go.git | 585.4 KiB (45.6%) | 52.9× | 84.1 MiB | 148 | agentcache does NOT repay its cold cost vs blobless within ~148 passes — blobless preferred |
+| jq.git | 14.0 KiB (48.4%) | 88.2× | 1.1 MiB | 82 | break-even vs blobless: ~82 warm passes (1.1 MiB ÷ 14.0 KiB/pass) |
+| ohmyzsh.git | 54.8 KiB (77.1%) | 209.1× | 5.2 MiB | 98 | break-even vs blobless: ~98 warm passes (5.2 MiB ÷ 54.8 KiB/pass) |
+| prettier.git | 516.2 KiB (90.6%) | 121.7× | 16.1 MiB | 32 | break-even vs blobless: ~32 warm passes (16.1 MiB ÷ 516.2 KiB/pass) |
+| redis.git | 61.7 KiB (24.8%) | 26.3× | 10.3 MiB | 172 | agentcache does NOT repay its cold cost vs blobless within ~172 passes — blobless preferred |
+| ripgrep.git | 9.1 KiB (19.8%) | 17.6× | 1.5 MiB | 169 | agentcache does NOT repay its cold cost vs blobless within ~169 passes — blobless preferred |
 
-> agentcache pays for itself fastest on blob-heavy repos (anthropic-sdk-python ~16 warm passes) and slowest on lean code repos (fd ~715 warm passes).
+> Break-even vs blobless ranges from ~16 passes (anthropic-sdk-python) to ~715 passes (fd). 8 repo(s) exceed 100 passes — blobless is the practical default for those.
 
 ### Server-side warm overhead (the maintenance cost)
 
@@ -230,16 +327,25 @@ Ran 2026-06-26 22:12 UTC → 2026-06-26 22:15 UTC (160s)
 | bat.git | 1004 | 2.1 MiB | 53.9 KiB | 9.7 KiB | 2.3 MiB | 222.1× |
 | codex.git | 5259 | 10.3 MiB | 875.8 KiB | 660.2 KiB | 19.6 MiB | 16.0× |
 
+### Cold start across the three approaches
+
+| Repo | naive cold | blobless cold | agentcache cold | agentcache cold ÷ blobless |
+|------|----------:|-------------:|----------------:|---------------------------:|
+| anthropic-cookbook.git | 153.3 MiB | 43.6 KiB | 557.4 KiB | 13× |
+| anthropic-sdk-python.git | 1.1 MiB | 95.8 KiB | 858.9 KiB | 9× |
+| bat.git | 2.1 MiB | 55.7 KiB | 2.3 MiB | 43× |
+| codex.git | 10.3 MiB | 931.8 KiB | 19.6 MiB | 22× |
+
 ### Cost / benefit vs blobless (the honest competitor)
 
 | Repo | warm saved/pass vs blobless | warm vs naive | cold overhead vs blobless | break-even (warm passes) | verdict |
 |------|----------------------------:|:--------------:|---------------------------:|:------------------------:|:--------|
-| anthropic-cookbook.git | 27.0 KiB (63.7%) | 10201.5× | 513.8 KiB | 20 | ✓ beats naive immediately; beats blobless after ~20 warm passes |
-| anthropic-sdk-python.git | 44.7 KiB (58.1%) | 34.5× | 763.1 KiB | 18 | ✓ beats naive immediately; beats blobless after ~18 warm passes |
-| bat.git | 44.2 KiB (82.0%) | 222.1× | 2.3 MiB | 53 | ✓ beats naive immediately; beats blobless after ~53 warm passes |
-| codex.git | 215.6 KiB (24.6%) | 16.0× | 18.7 MiB | 89 | ✓ beats naive immediately; beats blobless after ~89 warm passes |
+| anthropic-cookbook.git | 27.0 KiB (63.7%) | 10201.5× | 513.8 KiB | 20 | break-even vs blobless: ~20 warm passes (513.8 KiB ÷ 27.0 KiB/pass) |
+| anthropic-sdk-python.git | 44.7 KiB (58.1%) | 34.5× | 763.1 KiB | 18 | break-even vs blobless: ~18 warm passes (763.1 KiB ÷ 44.7 KiB/pass) |
+| bat.git | 44.2 KiB (82.0%) | 222.1× | 2.3 MiB | 53 | break-even vs blobless: ~53 warm passes (2.3 MiB ÷ 44.2 KiB/pass) |
+| codex.git | 215.6 KiB (24.6%) | 16.0× | 18.7 MiB | 89 | break-even vs blobless: ~89 warm passes (18.7 MiB ÷ 215.6 KiB/pass) |
 
-> agentcache pays for itself fastest on blob-heavy repos (anthropic-sdk-python ~18 warm passes) and slowest on lean code repos (codex ~89 warm passes).
+> Break-even vs blobless ranges from ~18 passes (anthropic-sdk-python) to ~89 passes (codex).
 
 ### Server-side warm overhead (the maintenance cost)
 
@@ -289,14 +395,21 @@ Ran 2026-06-26 21:13 UTC → 2026-06-26 21:13 UTC (13s)
 | fd.git | 57 | 142.1 KiB | 12.9 KiB | 11.3 KiB | 1.1 MiB | 12.6× |
 | ripgrep.git | 222 | 649.8 KiB | 51.5 KiB | 42.6 KiB | 1.5 MiB | 15.3× |
 
+### Cold start across the three approaches
+
+| Repo | naive cold | blobless cold | agentcache cold | agentcache cold ÷ blobless |
+|------|----------:|-------------:|----------------:|---------------------------:|
+| fd.git | 142.8 KiB | 7.4 KiB | 1.1 MiB | 147× |
+| ripgrep.git | 650.3 KiB | 43.1 KiB | 1.5 MiB | 37× |
+
 ### Cost / benefit vs blobless (the honest competitor)
 
 | Repo | warm saved/pass vs blobless | warm vs naive | cold overhead vs blobless | break-even (warm passes) | verdict |
 |------|----------------------------:|:--------------:|---------------------------:|:------------------------:|:--------|
-| fd.git | 1.6 KiB (12.4%) | 12.6× | 1.1 MiB | 677 | ✓ beats naive immediately; beats blobless after ~677 warm passes |
-| ripgrep.git | 8.9 KiB (17.4%) | 15.3× | 1.5 MiB | 172 | ✓ beats naive immediately; beats blobless after ~172 warm passes |
+| fd.git | 1.6 KiB (12.4%) | 12.6× | 1.1 MiB | 677 | agentcache does NOT repay its cold cost vs blobless within ~677 passes — blobless preferred |
+| ripgrep.git | 8.9 KiB (17.4%) | 15.3× | 1.5 MiB | 172 | agentcache does NOT repay its cold cost vs blobless within ~172 passes — blobless preferred |
 
-> agentcache pays for itself fastest on blob-heavy repos (ripgrep ~172 warm passes) and slowest on lean code repos (fd ~677 warm passes).
+> Break-even vs blobless ranges from ~172 passes (ripgrep) to ~677 passes (fd). 2 repo(s) exceed 100 passes — blobless is the practical default for those.
 
 ### Server-side warm overhead (the maintenance cost)
 
