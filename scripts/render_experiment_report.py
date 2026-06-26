@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,6 +70,13 @@ def _fmt_ts(s: str | None) -> str:
 def _sort_key(exp: dict) -> str:
     """Sort key: completed_at, fallback to created_at (both ISO strings sort lexically)."""
     return exp.get("completed_at") or exp.get("created_at") or ""
+
+
+def _fmt_pct(numerator: float | None, denominator: float | None) -> str:
+    """Format a fraction as a percentage string like '12.4%', guarding None/zero-division."""
+    if numerator is None or denominator is None or denominator == 0:
+        return "—"
+    return f"{100.0 * numerator / denominator:.1f}%"
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +197,195 @@ def _render_human_step(entry: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_cost_benefit(campaigns: list[dict]) -> str:
+    """Render the '### Cost / benefit vs blobless' subsection for one experiment.
+
+    For each campaign computes:
+      warm_saved_per_pass = blobless_warm_avg_bytes - agentcache_warm_avg_bytes
+      cold_overhead       = agentcache_cold_bytes   - blobless_cold_bytes
+      break_even_passes   = ceil(cold_overhead / warm_saved_per_pass)
+    All None / division-by-zero cases are guarded and shown as '—'.
+    """
+    lines: list[str] = []
+    lines.append("### Cost / benefit vs blobless (the honest competitor)\n\n")
+    lines.append(
+        "| Repo | warm saved/pass vs blobless | warm vs naive "
+        "| cold overhead vs blobless | break-even (warm passes) | verdict |\n"
+    )
+    lines.append(
+        "|------|----------------------------:|:--------------"
+        ":|---------------------------:|:------------------------:|:--------|\n"
+    )
+
+    # Accumulate (repo_short, break_even) for the takeaway line.
+    valid_be: list[tuple[str, int]] = []
+
+    for camp in campaigns:
+        repo = camp.get("repo", "?")
+        repo_short = repo.removesuffix(".git")
+        err = camp.get("error")
+        if err:
+            lines.append(f"| {repo} | — | — | — | — | FAILED |\n")
+            continue
+
+        summ = camp.get("summary", {})
+        bl = summ.get("blobless", {})
+        ac = summ.get("agentcache", {})
+        win = summ.get("_win_vs_naive", {})
+
+        bl_warm: float | None = bl.get("warm_avg_bytes")
+        ac_warm: float | None = ac.get("warm_avg_bytes")
+        bl_cold: float | None = bl.get("cold_bytes")
+        ac_cold: float | None = ac.get("cold_bytes")
+        ac_win: float | None = win.get("agentcache")
+
+        # --- warm saved per pass ---
+        if bl_warm is None or ac_warm is None:
+            warm_saved: float | None = None
+        else:
+            warm_saved = bl_warm - ac_warm
+
+        if warm_saved is None:
+            warm_col = "—"
+        else:
+            pct = _fmt_pct(warm_saved, bl_warm)
+            warm_col = f"{_fmt_bytes(warm_saved)} ({pct})"
+
+        # --- win vs naive ---
+        win_col = f"{ac_win:.1f}×" if ac_win is not None else "—"
+
+        # --- cold overhead ---
+        if bl_cold is None or ac_cold is None:
+            cold_oh: float | None = None
+            cold_col = "—"
+        else:
+            cold_oh = ac_cold - bl_cold
+            cold_col = "none" if cold_oh <= 0 else _fmt_bytes(cold_oh)
+
+        # --- break-even passes ---
+        if warm_saved is None or warm_saved <= 0:
+            # No warm byte win — blobless is the better choice
+            break_even: int | None = None
+            be_col = "N/A"
+            verdict = (
+                "✗ no warm byte win over blobless — blobless is the better choice here"
+            )
+        elif cold_oh is None:
+            break_even = None
+            be_col = "unknown"
+            verdict = "beats naive; blobless break-even unknown (missing cold data)"
+        elif cold_oh <= 0:
+            break_even = 0
+            be_col = "0"
+            verdict = "✓ beats blobless immediately (no cold penalty)"
+            valid_be.append((repo_short, 0))
+        else:
+            break_even = math.ceil(cold_oh / warm_saved)
+            be_col = str(break_even)
+            verdict = f"✓ beats naive immediately; beats blobless after ~{break_even} warm passes"
+            valid_be.append((repo_short, break_even))
+
+        lines.append(
+            f"| {repo} | {warm_col} | {win_col} | {cold_col} | {be_col} | {verdict} |\n"
+        )
+
+    lines.append("\n")
+
+    # --- Takeaway line ---
+    if len(valid_be) >= 2:
+        fastest = min(valid_be, key=lambda x: x[1])
+        slowest = max(valid_be, key=lambda x: x[1])
+        if fastest[0] != slowest[0]:
+            lines.append(
+                f"> agentcache pays for itself fastest on blob-heavy repos "
+                f"({fastest[0]} ~{fastest[1]} warm passes) "
+                f"and slowest on lean code repos "
+                f"({slowest[0]} ~{slowest[1]} warm passes).\n\n"
+            )
+        else:
+            # Only one distinct repo (all tied)
+            lines.append(
+                f"> agentcache breaks even vs blobless after ~{fastest[1]} warm passes "
+                f"across all repos in this run.\n\n"
+            )
+    elif len(valid_be) == 1:
+        r, be = valid_be[0]
+        lines.append(
+            f"> agentcache breaks even vs blobless after ~{be} warm passes on {r}.\n\n"
+        )
+    else:
+        lines.append(
+            "> Break-even vs blobless unavailable "
+            "(missing cold/warm byte data or no warm byte win).\n\n"
+        )
+
+    return "".join(lines)
+
+
+def _render_server_overhead(campaigns: list[dict]) -> str:
+    """Render the '### Server-side warm overhead' subsection if human commits exist.
+
+    Lists each human commit's rebuild cost: warm_method, hook wall-time,
+    action wall-time, and bundle bytes. Returns an empty string when there
+    are no human commits in the experiment.
+    """
+    all_human: list[tuple[str, dict]] = []
+    for camp in campaigns:
+        repo = camp.get("repo", "?")
+        for entry in camp.get("timeline", []):
+            if entry.get("kind") == "human":
+                all_human.append((repo, entry))
+
+    if not all_human:
+        return ""
+
+    lines: list[str] = []
+    lines.append("### Server-side warm overhead (the maintenance cost)\n\n")
+    lines.append(
+        "Every human commit triggers a server-side cache rebuild (CPU + storage) "
+        "so the next agent finds a warm cache. "
+        "This is a maintenance cost that **naive** and **blobless** don't pay.\n\n"
+    )
+    lines.append("| Repo | warm_method | hook wall | action wall | bundle bytes |\n")
+    lines.append("|------|:-----------:|----------:|------------:|-------------:|\n")
+
+    for repo, entry in all_human:
+        warm_method = entry.get("warm_method") or "hook"
+        hook_wall: float | None = entry.get("hook_wall_s")
+        action_dict = entry.get("action") or {}
+        comparison = entry.get("comparison") or {}
+
+        # For "both" entries, the comparison dict has the definitive per-path timings.
+        if comparison:
+            hook_wall = comparison.get("hook_wall_s", hook_wall)
+
+        action_wall: float | None = action_dict.get("wall_s")
+        if action_wall is None and comparison:
+            action_wall = comparison.get("action_wall_s")
+
+        bundle_bytes: int | None = action_dict.get("bundle_bytes")
+
+        hook_str = f"{hook_wall:.3f}s" if hook_wall is not None else "—"
+        action_str = f"{action_wall:.3f}s" if action_wall is not None else "—"
+        bundle_str = _fmt_bytes(bundle_bytes)
+
+        lines.append(
+            f"| {repo} | {warm_method} | {hook_str} | {action_str} | {bundle_str} |\n"
+        )
+
+    lines.append("\n")
+    lines.append(
+        "> Server-side time and bundle bytes are CPU + storage cost paid on every "
+        "human push — separate from the agent network bytes measured in the results "
+        "table above. The in-process hook path is typically 2–10× faster than the "
+        "GitHub Action path (subprocess + blobless bundle rebuild). Delta indexing "
+        "minimises re-work by re-ctags-ing only changed files and carrying the rest "
+        "forward.\n\n"
+    )
+
+    return "".join(lines)
+
+
 def _render_experiment(exp: dict) -> str:
     """Render one experiment section as Markdown."""
     eid = exp.get("experiment_id", "?")
@@ -222,6 +419,12 @@ def _render_experiment(exp: dict) -> str:
         for camp in campaigns:
             lines.append(_render_campaign_row(camp))
         lines.append("\n")
+
+        # Cost / benefit analysis (new section)
+        lines.append(_render_cost_benefit(campaigns))
+
+        # Server-side warm overhead (new section)
+        lines.append(_render_server_overhead(campaigns))
 
     # Human steps — collect all from all campaigns
     human_entries: list[tuple[str, int, dict]] = []  # (repo, human_index, entry)
@@ -335,7 +538,10 @@ def main() -> None:
         "builds its cache from scratch on first access), and **later passes are WARM** "
         "(the cache already exists and only the requested blobs are fetched). "
         "Each interleaved human commit triggers a server-side cache update via the "
-        "`post-receive` hook, keeping the next agent warm.\n\n"
+        "`post-receive` hook, keeping the next agent warm. "
+        "**Framing:** naive is the easy win; the real test is agentcache vs blobless, "
+        "accounting for agentcache's cold-build cost and per-commit warm overhead — "
+        "see each run's **Cost/benefit** section below.\n\n"
     )
     md_lines.append("Regenerate with: `python scripts/render_experiment_report.py`\n\n")
 
