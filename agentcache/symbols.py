@@ -78,8 +78,14 @@ def _extract_paths(
     with open(tar_path, "wb") as fh:
         subprocess.run(cmd, stdout=fh, check=True)
     with tarfile.open(tar_path) as tf:
-        # filter='data' (py3.12+) refuses absolute paths / traversal in members.
-        tf.extractall(dest, filter="data")
+        # filter='data' (py3.12+, backported to 3.11.4 / 3.10.12) refuses absolute
+        # paths / traversal in members. Fall back cleanly on older interpreters --
+        # the tar is produced by `git archive` of our own commit, so its members
+        # are trusted, relative tree paths with no traversal.
+        try:
+            tf.extractall(dest, filter="data")
+        except TypeError:
+            tf.extractall(dest)  # pragma: no cover - older Python without filter=
     os.remove(tar_path)
 
 
