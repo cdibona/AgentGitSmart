@@ -1,4 +1,5 @@
 """Pydantic models for the test harness API."""
+
 from __future__ import annotations
 
 from typing import List, Optional
@@ -59,8 +60,8 @@ class AgentTaskMetrics(BaseModel):
 class ApproachResult(BaseModel):
     approach: str
     elapsed_s: float
-    bytes_proxy_in: int = 0    # client → server (git wants)
-    bytes_proxy_out: int = 0   # server → client (pack data)
+    bytes_proxy_in: int = 0  # client → server (git wants)
+    bytes_proxy_out: int = 0  # server → client (pack data)
     bytes_proxy_total: int = 0
     objects_received: int = 0
     disk_bytes: int = 0
@@ -99,14 +100,20 @@ class RunDetail(RunSummary):
 
 class ExperimentConfig(BaseModel):
     """A comprehensive multi-project campaign (cold/warm + method comparison)."""
+
     repos: List[str]
     methods: List[str] = ["naive", "blobless", "agentcache"]
-    passes: int = 3                 # agent passes per repo (1st = cold, rest = warm)
-    pct: float = 2.0                # % of source files the agent edits
+    passes: int = 3  # agent passes per repo (1st = cold, rest = warm)
+    pct: float = 2.0  # % of source files the agent edits
     seed: int = 1000
-    human_commits: int = 0          # teammate commits to interleave (one per gap between agent passes)
-    hook_warms: bool = True         # does the server hook pre-warm the new commit's cache?
-    use_docker: bool = True         # run each pass in a fresh disposable container (default)
+    human_commits: int = (
+        0  # teammate commits to interleave (one per gap between agent passes)
+    )
+    hook_warms: bool = True  # does the server hook pre-warm the new commit's cache?
+    warm_method: str = (
+        "hook"  # how to warm: "hook" | "action" | "both" (hook_warms must be True)
+    )
+    use_docker: bool = True  # run each pass in a fresh disposable container (default)
 
 
 class SystemStatus(BaseModel):

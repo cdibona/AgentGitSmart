@@ -25,12 +25,17 @@ Design notes
   reconfig).  If ``hook_warms`` is set we then pre-build the cache for the new
   commit — exactly what a real ``post-receive`` hook would do.
 """
+
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import shutil
 import subprocess
+import sys
+import tempfile
 import time
 import traceback
 from datetime import datetime, timezone
@@ -41,14 +46,97 @@ import pygit2
 
 from . import docker_runner
 from .real_agent import run_real_agent
+from agentcache import cache_writer
+from agentcache import hook as hook_mod
 from agentcache import uninstall as uninstall_mod
 from agentcache.config import AgentCacheConfig
-from agentcache import hook as hook_mod
 
 REF_PREFIX = "refs/agent-cache"
 EXP_BRANCH_PREFIX = "agentcache-exp"
+# Project root is the parent of testharness/; scripts/ lives there.
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Module-level helper — testable without instantiating ExperimentRunner
+# ---------------------------------------------------------------------------
+
+
+def run_action_generate(
+    repo_dir: str,
+    commit: str,
+    branch: str,
+    scripts_dir: Path = SCRIPTS_DIR,
+) -> dict:
+    """Run scripts/generate_agentcache.py as a subprocess (GitHub Action equivalent).
+
+    Builds manifest + symbols + cache ref AND a blobless bundle (the extra work
+    the in-process hook does NOT do).  Times the full subprocess wall clock,
+    reads the generation block back from the written meta.json artifact, and
+    captures the bundle file size.
+
+    Returns a dict:
+        wall_s       -- elapsed seconds (float, 4dp)
+        generation   -- the "generation" block from meta.json ({} on failure)
+        bundle_bytes -- total bytes of *.bundle files written (0 on failure)
+        returncode   -- subprocess exit code (-1 on internal exception)
+        error        -- last 500 chars of stderr when returncode != 0, else None
+
+    Never raises.
+    """
+    bundle_dir = tempfile.mkdtemp(prefix="agentcache_action_")
+    try:
+        t0 = time.perf_counter()
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(scripts_dir / "generate_agentcache.py"),
+                "--repo",
+                repo_dir,
+                "--commit",
+                commit,
+                "--branch",
+                branch,
+                "--bundle-dir",
+                bundle_dir,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        elapsed = time.perf_counter() - t0
+
+        gen: dict = {}
+        if proc.returncode == 0:
+            try:
+                repo = pygit2.Repository(repo_dir)
+                raw = cache_writer.read_artifact(repo, commit, "meta.json")
+                gen = json.loads(raw).get("generation", {})
+            except Exception:
+                pass  # generation block unavailable — return empty dict
+
+        bundle_bytes: int = sum(
+            p.stat().st_size for p in Path(bundle_dir).glob("*.bundle")
+        )
+        return {
+            "wall_s": round(elapsed, 4),
+            "generation": gen,
+            "bundle_bytes": bundle_bytes,
+            "returncode": proc.returncode,
+            "error": proc.stderr[-500:] if proc.returncode != 0 else None,
+        }
+    except Exception as exc:
+        return {
+            "wall_s": 0.0,
+            "generation": {},
+            "bundle_bytes": 0,
+            "returncode": -1,
+            "error": str(exc),
+        }
+    finally:
+        shutil.rmtree(bundle_dir, ignore_errors=True)
 
 
 class ExperimentRunner:
@@ -78,8 +166,9 @@ class ExperimentRunner:
         return f"http://127.0.0.1:{self.svc_port}"
 
     def _git(self, repo_dir: str, *args: str, **kw) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "--git-dir", repo_dir, *args],
-                              capture_output=True, text=True, **kw)
+        return subprocess.run(
+            ["git", "--git-dir", repo_dir, *args], capture_output=True, text=True, **kw
+        )
 
     def head_commit(self, repo_dir: str, ref: str) -> str:
         return self._git(repo_dir, "rev-parse", ref).stdout.strip()
@@ -96,7 +185,9 @@ class ExperimentRunner:
         return f"{REF_PREFIX}/{commit}" in pygit2.Repository(repo_dir).references
 
     def cache_ref_count(self, repo_dir: str) -> int:
-        return len(uninstall_mod.find_cache_refs(pygit2.Repository(repo_dir), REF_PREFIX))
+        return len(
+            uninstall_mod.find_cache_refs(pygit2.Repository(repo_dir), REF_PREFIX)
+        )
 
     def clear_cache(self, repo_dir: str) -> int:
         return uninstall_mod.erase(repo_dir, ref_prefix=REF_PREFIX, dry_run=False)[
@@ -105,8 +196,15 @@ class ExperimentRunner:
 
     # ── the measured agent pass ────────────────────────────────────────
     async def _agent_pass(
-        self, repo: str, repo_dir: str, branch: str, commit: str,
-        method: str, seed: int, pct: float, use_docker: bool,
+        self,
+        repo: str,
+        repo_dir: str,
+        branch: str,
+        commit: str,
+        method: str,
+        seed: int,
+        pct: float,
+        use_docker: bool,
     ) -> dict:
         if method == "agentcache":
             await self.svc.switch_repo(repo_dir)
@@ -198,28 +296,66 @@ class ExperimentRunner:
             os.remove(env["GIT_INDEX_FILE"])
         # Seed the index from the parent tree, then add one tiny new file so the
         # tree (and thus the commit OID) genuinely changes.
-        subprocess.run(["git", "--git-dir", repo_dir, "read-tree", parent],
-                       capture_output=True, text=True, env=env)
+        subprocess.run(
+            ["git", "--git-dir", repo_dir, "read-tree", parent],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
         blob = subprocess.run(
             ["git", "--git-dir", repo_dir, "hash-object", "-w", "--stdin"],
-            input=f"# teammate change #{n}\n", capture_output=True, text=True, env=env,
+            input=f"# teammate change #{n}\n",
+            capture_output=True,
+            text=True,
+            env=env,
         ).stdout.strip()
         subprocess.run(
-            ["git", "--git-dir", repo_dir, "update-index", "--add",
-             "--cacheinfo", f"100644,{blob},TEAMMATE_NOTES_{n}.md"],
-            capture_output=True, text=True, env=env,
+            [
+                "git",
+                "--git-dir",
+                repo_dir,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"100644,{blob},TEAMMATE_NOTES_{n}.md",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
         )
-        tree = subprocess.run(["git", "--git-dir", repo_dir, "write-tree"],
-                              capture_output=True, text=True, env=env).stdout.strip()
-        commit = subprocess.run(
-            ["git", "--git-dir", repo_dir, "commit-tree", tree, "-p", parent,
-             "-m", f"teammate: push #{n}"],
-            capture_output=True, text=True,
-            env={**env, "GIT_AUTHOR_NAME": "A Teammate", "GIT_AUTHOR_EMAIL": "team@human",
-                 "GIT_COMMITTER_NAME": "A Teammate", "GIT_COMMITTER_EMAIL": "team@human"},
+        tree = subprocess.run(
+            ["git", "--git-dir", repo_dir, "write-tree"],
+            capture_output=True,
+            text=True,
+            env=env,
         ).stdout.strip()
-        subprocess.run(["git", "--git-dir", repo_dir, "update-ref", ref, commit],
-                       capture_output=True, text=True)
+        commit = subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                repo_dir,
+                "commit-tree",
+                tree,
+                "-p",
+                parent,
+                "-m",
+                f"teammate: push #{n}",
+            ],
+            capture_output=True,
+            text=True,
+            env={
+                **env,
+                "GIT_AUTHOR_NAME": "A Teammate",
+                "GIT_AUTHOR_EMAIL": "team@human",
+                "GIT_COMMITTER_NAME": "A Teammate",
+                "GIT_COMMITTER_EMAIL": "team@human",
+            },
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "--git-dir", repo_dir, "update-ref", ref, commit],
+            capture_output=True,
+            text=True,
+        )
         try:
             os.remove(env["GIT_INDEX_FILE"])
         except OSError:
@@ -237,6 +373,24 @@ class ExperimentRunner:
         repo = pygit2.Repository(repo_dir)
         result = hook_mod.generate_for_commit(repo, commit, cfg)
         return result.get("generation", {}) if isinstance(result, dict) else {}
+
+    def _delete_cache_ref(self, repo_dir: str, commit: str) -> None:
+        """Delete refs/agent-cache/<commit> if it exists; no-op otherwise."""
+        repo = pygit2.Repository(repo_dir)
+        ref_name = f"{REF_PREFIX}/{commit}"
+        if ref_name in repo.references:
+            repo.references[ref_name].delete()
+
+    def _action_build(self, repo_dir: str, commit: str, branch: str) -> dict:
+        """Run the GitHub Action equivalent as a subprocess.
+
+        Delegates to the module-level :func:`run_action_generate` so the core
+        logic can be unit-tested without instantiating ExperimentRunner.
+
+        Returns the dict from :func:`run_action_generate` — wall_s, generation,
+        bundle_bytes, returncode, error.  Never raises.
+        """
+        return run_action_generate(repo_dir, commit, branch)
 
     # ── one repo's campaign ────────────────────────────────────────────
     async def _campaign(
@@ -268,8 +422,10 @@ class ExperimentRunner:
         remaining = self.cache_ref_count(repo_dir)
         commit = self.head_commit(repo_dir, f"refs/heads/{branch}")
         nfiles = self.file_count(repo_dir, commit)
-        emit(f"[{repo}] start — {nfiles} files · cleared {cleared} agent-cache "
-             f"ref(s), {remaining} remain (verified cold)")
+        emit(
+            f"[{repo}] start — {nfiles} files · cleared {cleared} agent-cache "
+            f"ref(s), {remaining} remain (verified cold)"
+        )
 
         # Spread the requested human commits across the gaps between agent
         # passes, one per gap, starting right after pass 1.  With G = passes-1
@@ -295,55 +451,139 @@ class ExperimentRunner:
                     f"{cell['wall_s']:.2f}s {tag}"
                     + (f" ERR={cell['error'][:40]}" if cell["error"] else "")
                 )
-            timeline.append({
-                "pass_index": i, "kind": "agent", "commit": commit,
-                "started_at": pass_started_at,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "cells": cells,
-            })
+            timeline.append(
+                {
+                    "pass_index": i,
+                    "kind": "agent",
+                    "commit": commit,
+                    "started_at": pass_started_at,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "cells": cells,
+                }
+            )
 
             # Insert a human commit in this gap (after pass i), if budgeted.
             if i <= commits_to_place:
                 human_count += 1
+                warm_method = config.get("warm_method", "hook")
                 human_started_at = datetime.now(timezone.utc).isoformat()
                 _t0 = time.perf_counter()
                 new_commit = self._human_commit(repo_dir, branch, human_count)
                 commit_wall_s = time.perf_counter() - _t0
+
                 warmed = False
                 hook_gen: Optional[dict] = None
                 hook_wall_s = 0.0
+                action_dict: Optional[dict] = None
+                comparison: Optional[dict] = None
+
                 if hook_warms:
-                    _th = time.perf_counter()
-                    hook_gen = self._hook_build(repo_dir, new_commit)
-                    hook_wall_s = time.perf_counter() - _th
-                    warmed = True
-                timeline.append({
-                    "pass_index": i, "kind": "human", "commit": new_commit,
-                    "human_index": human_count, "hook_warmed": warmed,
+                    if warm_method == "hook":
+                        _th = time.perf_counter()
+                        hook_gen = self._hook_build(repo_dir, new_commit)
+                        hook_wall_s = time.perf_counter() - _th
+                        warmed = True
+                    elif warm_method == "action":
+                        action_dict = self._action_build(repo_dir, new_commit, branch)
+                        warmed = True
+                    elif warm_method == "both":
+                        # Run each from a cold start to measure fairly.
+                        # Defensive clear (no-op right after a fresh human commit, but
+                        # ensures cold start if re-running against an existing commit).
+                        self._delete_cache_ref(repo_dir, new_commit)
+                        _th = time.perf_counter()
+                        hook_gen = self._hook_build(repo_dir, new_commit)
+                        hook_wall_s = time.perf_counter() - _th
+                        # Clear the ref so the action also starts cold.
+                        self._delete_cache_ref(repo_dir, new_commit)
+                        action_dict = self._action_build(repo_dir, new_commit, branch)
+                        # Leave the action-built cache in place (it also has the bundle).
+                        h = hook_wall_s
+                        a = action_dict.get("wall_s", 0.0)
+                        comparison = {
+                            "hook_wall_s": round(h, 4),
+                            "action_wall_s": round(a, 4),
+                            "ratio_action_over_hook": round(a / h, 2) if h else None,
+                            "faster": "hook" if h <= a else "action",
+                        }
+                        warmed = True
+
+                # Build the note suffix based on which mechanism(s) ran.
+                if warmed:
+                    _note_suffix = {
+                        "hook": " (hook pre-warmed cache)",
+                        "action": " (action pre-warmed cache)",
+                        "both": " (hook+action pre-warmed cache — compared)",
+                    }.get(warm_method, " (pre-warmed cache)")
+                else:
+                    _note_suffix = ""
+
+                entry: dict = {
+                    "pass_index": i,
+                    "kind": "human",
+                    "commit": new_commit,
+                    "human_index": human_count,
+                    "hook_warmed": warmed,
+                    "warm_method": warm_method,
                     "started_at": human_started_at,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                     "files_changed": 1,  # the teammate adds exactly one file
                     "commit_wall_s": round(commit_wall_s, 4),
+                    # hook_wall_s / hook kept for backward compat; 0.0/None when not used.
                     "hook_wall_s": round(hook_wall_s, 4),
-                    # The cache-rebuild load the human commit triggered (delta/full,
-                    # files reindexed/carried, bytes materialized, symbols, ...):
                     "hook": hook_gen,
-                    "note": f"teammate commit #{human_count}"
-                            + (" (hook pre-warmed cache)" if warmed else ""),
-                })
+                    "note": f"teammate commit #{human_count}{_note_suffix}",
+                }
+                if warm_method in ("action", "both"):
+                    entry["action"] = action_dict
+                if warm_method == "both":
+                    entry["comparison"] = comparison
+                timeline.append(entry)
+
                 commit = new_commit  # subsequent agent passes target the new HEAD
-                if warmed and hook_gen:
+
+                # Emit a human-readable summary of what the warm step did.
+                if hook_warms:
+                    if warm_method == "hook":
+                        if hook_gen:
+                            emit(
+                                f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
+                                f"→ hook {hook_gen.get('mode', '?')}: "
+                                f"reindexed={hook_gen.get('files_reindexed', '?')} "
+                                f"carried={hook_gen.get('files_carried_forward', '?')} "
+                                f"{hook_gen.get('content_bytes_materialized', '?'):,}B "
+                                f"{hook_wall_s:.2f}s"
+                            )
+                        else:
+                            emit(
+                                f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
+                                "(hook ran, no generation data)"
+                            )
+                    elif warm_method == "action":
+                        a = action_dict.get("wall_s", 0.0) if action_dict else 0.0
+                        bundle_bytes = (
+                            action_dict.get("bundle_bytes", 0) if action_dict else 0
+                        )
+                        emit(
+                            f"[{repo}] HUMAN #{human_count} {new_commit[:10]} "
+                            f"→ action {a:.2f}s (bundle {bundle_bytes:,}B)"
+                        )
+                    elif warm_method == "both":
+                        h = hook_wall_s
+                        a = action_dict.get("wall_s", 0.0) if action_dict else 0.0
+                        bundle_bytes = (
+                            action_dict.get("bundle_bytes", 0) if action_dict else 0
+                        )
+                        emit(
+                            f"[{repo}] HUMAN #{human_count} {new_commit[:10]} "
+                            f"warm compare → hook {h:.2f}s vs action {a:.2f}s "
+                            f"(bundle {bundle_bytes:,}B)"
+                        )
+                else:
                     emit(
                         f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
-                        f"→ hook {hook_gen.get('mode', '?')}: "
-                        f"reindexed={hook_gen.get('files_reindexed', '?')} "
-                        f"carried={hook_gen.get('files_carried_forward', '?')} "
-                        f"{hook_gen.get('content_bytes_materialized', '?'):,}B "
-                        f"{hook_wall_s:.2f}s"
+                        "(no hook → next agent cold)"
                     )
-                else:
-                    emit(f"[{repo}] HUMAN commit #{human_count} {new_commit[:10]} "
-                         "(no hook → next agent cold)")
 
         summary = _summarize_campaign(timeline, methods)
 
@@ -371,13 +611,17 @@ class ExperimentRunner:
                     None, lambda: docker_runner.ensure_image(emit)
                 )
                 use_docker = bool(ok)
-                emit("Each pass will run in a FRESH disposable container 🐳"
-                     if use_docker else
-                     "Docker image unavailable — running on host (still proxy-measured).")
+                emit(
+                    "Each pass will run in a FRESH disposable container 🐳"
+                    if use_docker
+                    else "Docker image unavailable — running on host (still proxy-measured)."
+                )
             else:
                 emit("Docker not available — running on host (still proxy-measured).")
         else:
-            emit("Container isolation disabled — running on host (still proxy-measured).")
+            emit(
+                "Container isolation disabled — running on host (still proxy-measured)."
+            )
         config["_use_docker"] = use_docker
 
         description = describe_experiment(config, use_docker)
@@ -395,8 +639,16 @@ class ExperimentRunner:
                 tb = traceback.format_exc()
                 detail = f"{type(exc).__name__}: {exc}"
                 emit(f"[{repo}] FAILED: {detail}")
-                campaigns.append({"repo": repo, "files": 0, "timeline": [],
-                                  "summary": {}, "error": detail, "traceback": tb})
+                campaigns.append(
+                    {
+                        "repo": repo,
+                        "files": 0,
+                        "timeline": [],
+                        "summary": {},
+                        "error": detail,
+                        "traceback": tb,
+                    }
+                )
         return {"description": description, "campaigns": campaigns}
 
 
@@ -420,15 +672,20 @@ def describe_experiment(config: dict, use_docker: bool) -> str:
         else "agent passes run on the host (no container isolation)"
     )
     if human_commits:
-        human = (
-            f"{human_commits} teammate (human) commit(s) interleaved between agent passes, "
-            + (
-                "each pre-warming the cache via the post-receive hook "
-                "(the next agent stays warm)"
-                if hook_warms
-                else "with no hook warming (the next agent goes cold)"
+        warm_method = config.get("warm_method", "hook")
+        if hook_warms:
+            human = (
+                f"{human_commits} teammate (human) commit(s) interleaved between agent "
+                f"passes, cache warmed after each human commit via the {warm_method!r} "
+                f"mechanism (hook = in-process server post-receive; "
+                f"action = github-action subprocess incl. blobless bundle; "
+                f"both = run and compare); the next agent stays warm"
             )
-        )
+        else:
+            human = (
+                f"{human_commits} teammate (human) commit(s) interleaved between agent "
+                "passes, with no hook warming (the next agent goes cold)"
+            )
     else:
         human = "no human commits"
 
@@ -450,10 +707,19 @@ def _summarize_campaign(timeline: list[dict], methods: list[str]) -> dict:
     agent_passes = [p for p in timeline if p["kind"] == "agent"]
     out: dict = {}
     for m in methods:
-        cells = [p["cells"][m] for p in agent_passes if m in p["cells"] and not p["cells"][m]["error"]]
+        cells = [
+            p["cells"][m]
+            for p in agent_passes
+            if m in p["cells"] and not p["cells"][m]["error"]
+        ]
         if not cells:
-            out[m] = {"cold_bytes": None, "warm_avg_bytes": None,
-                      "cold_wall": None, "warm_avg_wall": None, "runs": 0}
+            out[m] = {
+                "cold_bytes": None,
+                "warm_avg_bytes": None,
+                "cold_wall": None,
+                "warm_avg_wall": None,
+                "runs": 0,
+            }
             continue
         cold = cells[0]
         warm = cells[1:] or cells  # if only one pass, warm == that pass
@@ -463,11 +729,15 @@ def _summarize_campaign(timeline: list[dict], methods: list[str]) -> dict:
             "cold_wall": cold["wall_s"],
             "warm_avg_wall": round(sum(c["wall_s"] for c in warm) / len(warm), 3),
             "cold_roundtrips": cold.get("roundtrips", 0),
-            "warm_avg_roundtrips": round(sum(c.get("roundtrips", 0) for c in warm) / len(warm), 1),
+            "warm_avg_roundtrips": round(
+                sum(c.get("roundtrips", 0) for c in warm) / len(warm), 1
+            ),
             "cold_bundle_used": cold.get("bundle_used", False),
             "warm_bundle_used": warm[0].get("bundle_used", False),
             "cold_clone_ms": cold.get("phase_clone_ms", 0.0),
-            "warm_avg_clone_ms": round(sum(c.get("phase_clone_ms", 0.0) for c in warm) / len(warm), 1),
+            "warm_avg_clone_ms": round(
+                sum(c.get("phase_clone_ms", 0.0) for c in warm) / len(warm), 1
+            ),
             "runs": len(cells),
         }
     # win factors vs naive (warm averages) — both bytes and wall time.
@@ -478,7 +748,9 @@ def _summarize_campaign(timeline: list[dict], methods: list[str]) -> dict:
         mw = out.get(m, {}).get("warm_avg_bytes")
         wins[m] = round(naive_warm / mw, 1) if (naive_warm and mw) else None
         mwall = out.get(m, {}).get("warm_avg_wall")
-        wins_wall[m] = round(naive_warm_wall / mwall, 1) if (naive_warm_wall and mwall) else None
+        wins_wall[m] = (
+            round(naive_warm_wall / mwall, 1) if (naive_warm_wall and mwall) else None
+        )
     out["_win_vs_naive"] = wins
     out["_win_vs_naive_wall"] = wins_wall
     return out
