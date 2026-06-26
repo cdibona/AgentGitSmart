@@ -466,6 +466,31 @@
           <span class="text-xs text-gray-500" x-text="currentExp ? (currentExp.config.repos.length+' repos · '+currentExp.config.passes+' passes · '+currentExp.config.pct+'%'+((currentExp.config.human_commits||currentExp.config.human_pass)?(' · '+(currentExp.config.human_commits||1)+' human commit(s)'):'')) : ''"></span>
         </div>
 
+
+        <!-- Description + experiment timestamps ──────────────────────────── -->
+        <div x-show="currentExp?.description"
+             class="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-4 text-xs text-gray-300 leading-relaxed">
+          <span class="font-semibold text-gray-100 mr-1">What was done:</span>
+          <span x-text="currentExp?.description || ''"></span>
+        </div>
+        <div x-show="currentExp?.created_at || currentExp?.completed_at"
+             class="flex flex-wrap gap-5 text-xs text-gray-400 mb-5">
+          <span x-show="currentExp?.created_at">
+            <span class="text-gray-500">Started </span>
+            <span class="font-mono text-gray-300"
+                  x-text="(currentExp?.created_at||'').slice(0,19).replace('T',' ') + ' UTC'"></span>
+          </span>
+          <span x-show="currentExp?.completed_at">
+            <span class="text-gray-500">Completed </span>
+            <span class="font-mono text-gray-300"
+                  x-text="(currentExp?.completed_at||'').slice(0,19).replace('T',' ') + ' UTC'"></span>
+          </span>
+          <span x-show="currentExp?.created_at && currentExp?.completed_at">
+            <span class="text-gray-500">Duration </span>
+            <span class="font-mono text-gray-300" x-text="expDuration()"></span>
+          </span>
+        </div>
+
         <div x-show="currentExp?.status === 'running'" class="mb-6">
           <h2 class="text-sm font-semibold text-gray-400 mb-2 uppercase tracking-wider">Live output</h2>
           <div id="exp-log"
@@ -484,6 +509,36 @@
             <em>and no CDN bundle yet</em> — so agentcache must pull full history over the network, just like blobless (often
             <em>more</em>, since it fetches unshallowed history). Only once the cache + bundle exist (built by the hook / lazy-gen)
             do later <span class="text-green-400 font-semibold">warm</span> passes become cheap. That cold→warm jump is the whole point.
+          </div>
+
+          <!-- Cold-start network cost across all approaches ────────────── -->
+          <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Cold-start network cost (1st agent pass)</h2>
+          <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto mb-6">
+            <table class="w-full text-xs">
+              <thead class="bg-gray-900 text-gray-400 uppercase tracking-wider">
+                <tr>
+                  <th class="px-3 py-2 text-left">Repo</th>
+                  <template x-for="m in (currentExp?.config.methods||[])" :key="'csh-'+m">
+                    <th class="px-3 py-2 text-right" :class="approachHeaderColor(m)" x-text="m + ' cold'"></th>
+                  </template>
+                  <th class="px-3 py-2 text-right text-gray-500">ac&thinsp;÷&thinsp;blobless</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-700">
+                <template x-for="c in (currentExp?.campaigns||[])" :key="'csr-'+c.repo">
+                  <tr class="hover:bg-gray-750">
+                    <td class="px-3 py-2 font-mono text-gray-200" x-text="c.repo"></td>
+                    <template x-for="m in (currentExp?.config.methods||[])" :key="'csrm-'+c.repo+'-'+m">
+                      <td class="px-3 py-2 text-right font-mono"
+                          :class="{'text-amber-400': m==='agentcache', 'text-orange-300': m==='blobless', 'text-blue-300': m==='naive'}"
+                          x-text="c.summary?.[m]?.cold_bytes != null ? fmtB(c.summary[m].cold_bytes) : '—'">
+                      </td>
+                    </template>
+                    <td class="px-3 py-2 text-right font-mono text-gray-300" x-text="expColdRatio(c)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
           </div>
 
           <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Summary — cold (1st run) vs warm (avg of rest)</h2>
@@ -551,7 +606,16 @@
                         <template x-if="p.kind==='agent'">
                           <template x-for="m in (currentExp?.config.methods||[])" :key="'pm-'+c.repo+'-'+pi+'-'+m">
                             <tr class="hover:bg-gray-900/50">
-                              <td class="px-2 py-1 text-gray-500" x-text="m===currentExp.config.methods[0] ? ('#'+p.pass_index) : ''"></td>
+                              <td class="px-2 py-1 text-gray-500 align-top">
+                                <template x-if="m===currentExp.config.methods[0]">
+                                  <div>
+                                    <span x-text="'#'+p.pass_index"></span>
+                                    <span x-show="expPassDuration(p)"
+                                          class="block text-gray-600 leading-tight"
+                                          x-text="expPassDuration(p)"></span>
+                                  </div>
+                                </template>
+                              </td>
                               <td class="px-2 py-1" :class="approachHeaderColor(m)" x-text="m"></td>
                               <td class="px-2 py-1 text-right font-mono text-gray-300" x-text="fmtB(p.cells?.[m]?.bytes)"></td>
                               <td class="px-2 py-1 text-right font-mono text-gray-300" x-text="(p.cells?.[m]?.wall_s ?? 0).toFixed(2)+'s'"></td>
@@ -582,6 +646,70 @@
               </template>
             </div>
           </details>
+
+
+          <!-- Human steps / warm-rebuild overhead ─────────────────────────── -->
+          <template x-if="(currentExp?.campaigns||[]).some(c => (c.timeline||[]).some(p => p.kind==='human'))">
+            <div class="mb-6">
+              <h2 class="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wider">Human steps — warm-rebuild overhead</h2>
+              <template x-for="c in (currentExp?.campaigns||[])" :key="'hsc-'+c.repo">
+                <template x-if="expHumanSteps(c).length > 0">
+                  <div class="mb-4 bg-gray-800 rounded-xl border border-gray-700 overflow-x-auto">
+                    <div class="px-4 py-2 bg-gray-900 font-mono text-xs text-gray-300 flex items-center gap-2">
+                      <span class="text-yellow-400">⟶</span>
+                      <span x-text="c.repo"></span>
+                    </div>
+                    <table class="w-full text-xs">
+                      <thead class="text-gray-500 bg-gray-900/50">
+                        <tr>
+                          <th class="px-3 py-2 text-left">#</th>
+                          <th class="px-3 py-2 text-left">warm method</th>
+                          <th class="px-3 py-2 text-left">rebuild mode</th>
+                          <th class="px-3 py-2 text-right">reindexed</th>
+                          <th class="px-3 py-2 text-right">carried fwd</th>
+                          <th class="px-3 py-2 text-right">bytes mat.</th>
+                          <th class="px-3 py-2 text-right">hook wall</th>
+                          <th class="px-3 py-2 text-right">action wall</th>
+                          <th class="px-3 py-2 text-right">bundle</th>
+                          <th class="px-3 py-2 text-right">winner</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-700">
+                        <template x-for="h in expHumanSteps(c)" :key="'hs-'+c.repo+'-'+(h.human_index||0)">
+                          <tr class="bg-yellow-900/10 hover:bg-yellow-900/20">
+                            <td class="px-3 py-2 text-yellow-500 font-mono" x-text="'#'+(h.human_index||1)"></td>
+                            <td class="px-3 py-2 text-gray-300 font-mono" x-text="h.warm_method||'—'"></td>
+                            <td class="px-3 py-2 text-gray-400" x-text="h.hook?.mode||'—'"></td>
+                            <td class="px-3 py-2 text-right font-mono text-gray-300"
+                                x-text="h.hook?.files_reindexed ?? '—'"></td>
+                            <td class="px-3 py-2 text-right font-mono text-gray-300"
+                                x-text="h.hook?.files_carried_forward ?? '—'"></td>
+                            <td class="px-3 py-2 text-right font-mono text-gray-300"
+                                x-text="h.hook?.content_bytes_materialized != null ? fmtB(h.hook.content_bytes_materialized) : '—'"></td>
+                            <td class="px-3 py-2 text-right font-mono text-gray-200"
+                                x-text="h.hook_wall_s != null ? h.hook_wall_s.toFixed(4)+'s' : '—'"></td>
+                            <td class="px-3 py-2 text-right font-mono text-gray-400"
+                                x-text="h.action?.wall_s != null ? h.action.wall_s.toFixed(4)+'s' : '—'"></td>
+                            <td class="px-3 py-2 text-right font-mono text-gray-400"
+                                x-text="h.action?.bundle_bytes != null ? fmtB(h.action.bundle_bytes) : '—'"></td>
+                            <td class="px-3 py-2 text-right">
+                              <template x-if="h.comparison?.faster">
+                                <span :class="h.comparison.faster==='hook'?'text-green-400':'text-blue-400'"
+                                      x-text="h.comparison.faster+' ('+h.comparison.ratio_action_over_hook.toFixed(2)+'\u00d7)'"></span>
+                              </template>
+                              <template x-if="!h.comparison?.faster">
+                                <span class="text-gray-600">—</span>
+                              </template>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
+              </template>
+            </div>
+          </template>
 
           <div class="grid grid-cols-2 gap-4 mb-4">
             <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">

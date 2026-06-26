@@ -1045,5 +1045,36 @@ function app() {
         }
       }
     },
+
+    // ── experiment detail enrichment helpers ──────────────────────────────
+    // Gracefully handles older records that lack description/timestamps/cold_bytes.
+
+    expDuration() {
+      const e = this.currentExp;
+      if (!e?.created_at || !e?.completed_at) return '—';
+      const secs = Math.round((new Date(e.completed_at) - new Date(e.created_at)) / 1000);
+      if (secs < 60) return secs + 's';
+      return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+    },
+
+    // agentcache cold ÷ blobless cold ratio — "—" when either value is absent.
+    expColdRatio(campaign) {
+      const ac = campaign?.summary?.agentcache?.cold_bytes;
+      const bl = campaign?.summary?.blobless?.cold_bytes;
+      if (ac == null || !bl) return '—';
+      return (ac / bl).toFixed(2) + '×';
+    },
+
+    // Returns the human-commit entries from a campaign timeline (may be empty).
+    expHumanSteps(campaign) {
+      return (campaign?.timeline || []).filter(p => p.kind === 'human');
+    },
+
+    // Wall time of a single agent pass (started_at → completed_at).
+    // Returns '' when timestamps are absent so callers can gate with x-show.
+    expPassDuration(p) {
+      if (!p?.started_at || !p?.completed_at) return '';
+      return ((new Date(p.completed_at) - new Date(p.started_at)) / 1000).toFixed(1) + 's';
+    },
   };
 }

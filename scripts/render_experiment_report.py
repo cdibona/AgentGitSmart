@@ -233,7 +233,12 @@ def _render_cold_start_table(campaigns: list[dict]) -> str:
     lines: list[str] = []
     lines.append("### Cold start across the three approaches\n\n")
     lines.append(
-        "| Repo | naive cold | blobless cold | agentcache cold "
+        "> **Column caveat:** agentcache cold = full-history blobless clone; "
+        "blobless cold = `--depth=1` shallow clone (no history). "
+        "These columns are not directly comparable on a bytes basis.\n\n"
+    )
+    lines.append(
+        "| Repo | naive cold | blobless cold (depth-1 shallow) | agentcache cold (full history) "
         "| agentcache cold ÷ blobless |\n"
     )
     lines.append(
@@ -566,21 +571,37 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
         "multiple runs are de-duplicated (worst value kept).\n\n"
     )
 
-    # 1. Cold-start penalty
-    lines.append("### 1. Cold-start penalty (bootstrap bundle scales with history)\n\n")
+    # 1. Full-history cold cost (with measurement caveats — NOT a clean defect)
     lines.append(
-        "agentcache's cold-start downloads a blobless bootstrap bundle. "
-        "On repos with deep history this bundle dwarfs the blobless cold fetch "
-        "and can exceed even naive warm bytes. "
-        "This is the largest structural hole.\n\n"
+        "### 1. Full-history cold cost (read the caveat — this is NOT a clean defect)\n\n"
+    )
+    lines.append(
+        "The table shows agentcache's cold-start bytes ÷ blobless's. "
+        "**Two measurement artifacts inflate this ratio — do not read it as pure overhead:**\n"
+        "1. **Full-history vs shallow.** agentcache's cold pass is a *full-history* blobless clone "
+        "— it delivers complete history (agentcache's core promise). The blobless column is a "
+        "`--depth=1` *shallow* clone with no history. This compares two different products.\n"
+        "2. **Un-amortized vs CDN-cached.** This is one cold agent paying the full first-visit cost. "
+        "In production the bootstrap bundle is built once per commit and served as an immutable "
+        "CDN-cached file reused by every agent on that commit — a per-commit cost, not per-agent.\n\n"
+        "**The genuine, narrower signal:** on deep-history repos the full-history payload "
+        "(commits+trees) is large, and the per-commit bundle *artifact* scales with history. "
+        "The real improvement target is a **base bundle + thin per-commit incremental** "
+        "(chained via `--bundle-uri`), which shrinks the per-commit artifact from O(history) "
+        "to O(delta) *without* losing full history. Also: the harness should measure the "
+        "production-realistic cold-WITH-bundle / per-commit-amortized cost (today it hardwires "
+        "cold⇒no-bundle), and an apples-to-apples arm (agentcache vs *full-history* blobless, "
+        "not depth-1).\n\n"
     )
     cold_rows = sorted(cold_by_repo.items(), key=lambda x: x[1][2], reverse=True)
     if cold_rows:
         lines.append(
-            "| Repo | agentcache cold | blobless cold | ratio (agentcache ÷ blobless) |\n"
+            "| Repo | agentcache cold (full history) | blobless cold (depth-1 shallow) "
+            "| ratio (agentcache ÷ blobless) |\n"
         )
         lines.append(
-            "|------|----------------:|--------------:|------------------------------:|\n"
+            "|------|-------------------------------:|--------------------------------:"
+            "|------------------------------:|\n"
         )
         for repo, (ac_cold, bl_cold, ratio) in cold_rows:
             lines.append(
@@ -590,11 +611,14 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
         lines.append("\n")
         worst_repo, (worst_ac, worst_bl, worst_ratio) = cold_rows[0]
         lines.append(
-            f"> **TODO — reduce bundle size:** Worst case is **{worst_repo}** at "
-            f"{_fmt_bytes(worst_ac)} cold vs {_fmt_bytes(worst_bl)} for blobless "
-            f"({worst_ratio:.0f}× penalty). On deep-history repos (cpython, git, go) "
-            f"the bootstrap bundle is the dominant agent network cost. "
-            f"Investigate partial-history bundles or lazy/on-demand bundle construction.\n\n"
+            f"> **Note (see caveats above):** Worst case is **{worst_repo}** at "
+            f"{_fmt_bytes(worst_ac)} full-history cold vs {_fmt_bytes(worst_bl)} "
+            f"for depth-1 blobless ({worst_ratio:.0f}× ratio). "
+            f"This ratio is inflated by the full-history vs depth-1 mismatch and the "
+            f"un-amortized single-agent cost. "
+            f"The real improvement lever is a **base bundle + thin per-commit incremental** "
+            f"(via `--bundle-uri`), reducing per-commit artifact size from O(history) to "
+            f"O(delta) without losing full history.\n\n"
         )
     else:
         lines.append("No cold-start penalty cases found in featured experiments.\n\n")
@@ -857,6 +881,7 @@ def main() -> None:
         "Each experiment runs multiple agent passes per repo: **pass 1 is COLD** "
         "(agentcache downloads its bootstrap bundle and builds its cache from scratch), "
         "and **later passes are WARM** (only the requested blobs are fetched). "
+        "**Column caveat:** the agentcache cold column delivers *full history* (full-history blobless clone, no depth limit); the blobless column uses `--depth=1` (shallow, no history) — the two cold columns are not directly comparable on a bytes basis. "
         "**Framing:** naive is the easy strawman; the real test is agentcache vs blobless. "
         "agentcache carries two costs that blobless does not: "
         "(1) a large COLD bootstrap bundle whose size scales with repo history depth, "
