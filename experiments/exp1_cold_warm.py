@@ -13,6 +13,7 @@ What it shows:
 
 Output: experiments/results/exp1_cold_warm.json + a printed table.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -97,7 +98,11 @@ def _summarize(report: dict) -> None:
     for repo in report["repos"]:
         line = f"  {repo:9}"
         for method in METHODS:
-            ms = [r for r in runs if r["repo"] == repo and r["method"] == method and not r["error"]]
+            ms = [
+                r
+                for r in runs
+                if r["repo"] == repo and r["method"] == method and not r["error"]
+            ]
             if ms:
                 avg = sum(r["bytes_proxy_out"] for r in ms) / len(ms)
                 line += f"  {method}={fmt_bytes(avg):>10}"

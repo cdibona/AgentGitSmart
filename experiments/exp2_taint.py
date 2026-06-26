@@ -17,6 +17,7 @@ pristine.  The aware agent's warm path is unchanged before vs after.
 
 Output: experiments/results/exp2_taint.json + printed verdict.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,7 +57,9 @@ async def run_one(h: ExperimentHarness, repo: str, seed: int, pct: float) -> dic
     )
 
     # warm baseline BEFORE the non-aware runs
-    warm_before = await h.run_agent(repo, "agentcache", iteration=2, seed=seed + 1, pct=pct)
+    warm_before = await h.run_agent(
+        repo, "agentcache", iteration=2, seed=seed + 1, pct=pct
+    )
     print(
         f"  [2] agentcache warm (before): net={fmt_bytes(warm_before.bytes_proxy_out)} "
         f"wall={warm_before.wall_s:.2f}s fetch={warm_before.phase_fetch_ms:.0f}ms"
@@ -75,7 +78,9 @@ async def run_one(h: ExperimentHarness, repo: str, seed: int, pct: float) -> dic
 
     # 4. cache state after non-aware runs + aware agent again
     fp_after = _cache_fingerprint(repo_dir)
-    warm_after = await h.run_agent(repo, "agentcache", iteration=5, seed=seed + 1, pct=pct)
+    warm_after = await h.run_agent(
+        repo, "agentcache", iteration=5, seed=seed + 1, pct=pct
+    )
 
     tainted = fp_before != fp_after
     flow_changed = warm_after.cache_built_this_run  # would mean cache vanished/rebuilt

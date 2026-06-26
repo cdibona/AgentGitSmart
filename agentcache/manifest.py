@@ -10,6 +10,7 @@ The flat listing is produced with ``Index.read_tree``, which expands a tree
 into its full recursive set of entries with complete paths -- no hand-rolled
 recursion required.
 """
+
 from __future__ import annotations
 
 import datetime as _dt

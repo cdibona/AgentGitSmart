@@ -17,6 +17,7 @@ Usage::
     python -m agentcache.uninstall --repo ... --yes --remove-hook --gc
     python -m agentcache.uninstall --repo ... --yes --bundles /srv/bundles
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,13 +31,17 @@ import pygit2
 from .cache_writer import list_caches
 
 
-def find_cache_refs(repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache") -> List[str]:
+def find_cache_refs(
+    repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache"
+) -> List[str]:
     """Return the full names of all agent-cache side refs in *repo*."""
     prefix = ref_prefix.rstrip("/") + "/"
     return sorted(name for name in repo.references if name.startswith(prefix))
 
 
-def delete_cache_refs(repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache") -> int:
+def delete_cache_refs(
+    repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache"
+) -> int:
     """Delete every agent-cache side ref. Returns the count removed."""
     refs = find_cache_refs(repo, ref_prefix)
     for name in refs:
@@ -134,16 +139,32 @@ def main(argv=None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--repo", required=True, help="Path to the (bare) git repo.")
-    p.add_argument("--ref-prefix", default="refs/agent-cache",
-                   help="Side-ref namespace to erase (default: refs/agent-cache).")
-    p.add_argument("--yes", action="store_true",
-                   help="Actually perform the erase (otherwise dry-run).")
-    p.add_argument("--remove-hook", action="store_true",
-                   help="Also remove the post-receive hook (only if it's an agentcache shim).")
-    p.add_argument("--bundles", metavar="DIR", default=None,
-                   help="Also delete *.bundle files from this directory.")
-    p.add_argument("--gc", action="store_true",
-                   help="Run git gc --prune=now to reclaim orphaned objects.")
+    p.add_argument(
+        "--ref-prefix",
+        default="refs/agent-cache",
+        help="Side-ref namespace to erase (default: refs/agent-cache).",
+    )
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Actually perform the erase (otherwise dry-run).",
+    )
+    p.add_argument(
+        "--remove-hook",
+        action="store_true",
+        help="Also remove the post-receive hook (only if it's an agentcache shim).",
+    )
+    p.add_argument(
+        "--bundles",
+        metavar="DIR",
+        default=None,
+        help="Also delete *.bundle files from this directory.",
+    )
+    p.add_argument(
+        "--gc",
+        action="store_true",
+        help="Run git gc --prune=now to reclaim orphaned objects.",
+    )
     args = p.parse_args(argv)
 
     if not os.path.exists(args.repo):

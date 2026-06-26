@@ -15,11 +15,11 @@ IMPORTANT consumption detail (verified against git 2.43): you cannot
 git ingests the bundle first (seeding commits + trees), then the catch-up fetch
 from the promisor transfers almost nothing.
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
-from typing import Optional
 
 import pygit2
 

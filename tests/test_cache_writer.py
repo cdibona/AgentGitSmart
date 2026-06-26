@@ -1,7 +1,7 @@
 """Cache-writer tests: orphan commit, side ref, readback, idempotency."""
+
 from __future__ import annotations
 
-import pygit2
 import pytest
 
 from agentcache import cache_writer

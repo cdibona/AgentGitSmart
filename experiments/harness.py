@@ -15,15 +15,17 @@ and exposes the primitives the experiments need:
   - run_agent(repo, method)  -> run one agent task, measured (bytes, timing, cache state)
   - install_hook / push_commit -> for the hook-update study
 """
+
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import pygit2
 
@@ -36,6 +38,7 @@ from testharness.proxy import ByteCountingProxy  # noqa: E402
 from testharness.processes import GitDaemon, AgentCacheService  # noqa: E402
 from testharness.real_agent import run_real_agent  # noqa: E402
 from agentcache import uninstall as uninstall_mod  # noqa: E402
+from agentcache import cache_writer  # noqa: E402
 
 REPOS_DIR = str(_ROOT / "benchmark" / "repos")
 REF_PREFIX = "refs/agent-cache"
@@ -60,15 +63,16 @@ ALL_REPOS = discover_repos()
 @dataclass
 class RunResult:
     """One agent run, fully measured."""
+
     repo: str
-    method: str               # naive | blobless | agentcache
+    method: str  # naive | blobless | agentcache
     iteration: int
     seed: int
     # cache state observed around this run
     cache_existed_before: bool
     cache_refs_before: int
     cache_refs_after: int
-    cache_built_this_run: bool   # cold build happened during this run
+    cache_built_this_run: bool  # cold build happened during this run
     # network + timing
     bytes_proxy_out: int
     bytes_proxy_in: int
@@ -131,14 +135,24 @@ class ExperimentHarness:
     def head_commit(self, repo: str) -> str:
         out = subprocess.run(
             ["git", "--git-dir", self.repo_dir(repo), "rev-parse", "HEAD"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return out.stdout.strip()
 
     def default_branch(self, repo: str) -> str:
         out = subprocess.run(
-            ["git", "--git-dir", self.repo_dir(repo), "symbolic-ref", "--short", "HEAD"],
-            capture_output=True, text=True,
+            [
+                "git",
+                "--git-dir",
+                self.repo_dir(repo),
+                "symbolic-ref",
+                "--short",
+                "HEAD",
+            ],
+            capture_output=True,
+            text=True,
         )
         return out.stdout.strip() or "main"
 
@@ -228,6 +242,7 @@ class ExperimentHarness:
 
 # ── formatting helpers shared by the experiment scripts ────────────────
 
+
 def fmt_bytes(n: float) -> str:
     n = float(n)
     for unit in ("B", "KiB", "MiB", "GiB"):
@@ -235,3 +250,21 @@ def fmt_bytes(n: float) -> str:
             return f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} TiB"
+
+
+def load_report_for(
+    repo: "pygit2.Repository | str",
+    commit: str,
+    *,
+    ref_prefix: str = REF_PREFIX,
+) -> Dict[str, Any]:
+    """Read the ``generation`` block from the cached ``meta.json`` for *commit*.
+
+    Returns the ``generation`` dict written by :func:`~agentcache.hook.generate_for_commit`.
+    Raises :exc:`KeyError` if no cache exists for *commit*.
+    """
+    if isinstance(repo, str):
+        repo = pygit2.Repository(repo)
+    raw = cache_writer.read_artifact(repo, commit, "meta.json", ref_prefix=ref_prefix)
+    meta: Dict[str, Any] = json.loads(raw)
+    return meta["generation"]

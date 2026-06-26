@@ -13,6 +13,7 @@ commit, we:
 No working tree is ever touched. The query service reads artifacts straight
 back out of the object database the same way.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping
@@ -71,13 +72,15 @@ def write_cache(
     }
 
 
-def list_caches(repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache") -> List[str]:
+def list_caches(
+    repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache"
+) -> List[str]:
     """Return the source-commit OIDs that currently have a cache ref."""
     prefix = ref_prefix.rstrip("/") + "/"
     out = []
     for name in repo.references:
         if name.startswith(prefix):
-            out.append(name[len(prefix):])
+            out.append(name[len(prefix) :])
     return sorted(out)
 
 

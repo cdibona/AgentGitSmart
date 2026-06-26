@@ -14,6 +14,7 @@ Adding a project to the fleet is therefore just:
 
 Safe to re-run; existing bundles are left alone unless --force.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,18 +52,36 @@ def ensure_bundle(name: str, repo_dir: str, *, force: bool = False) -> tuple[str
     out = BUNDLES_DIR / f"{name}.git-{branch}.bundle"
     if out.exists() and not force:
         return ("exists", str(out))
-    proc = _git("--git-dir", repo_dir, "bundle", "create", str(out),
-                "--filter=blob:none", f"refs/heads/{branch}")
+    proc = _git(
+        "--git-dir",
+        repo_dir,
+        "bundle",
+        "create",
+        str(out),
+        "--filter=blob:none",
+        f"refs/heads/{branch}",
+    )
     if proc.returncode != 0:
-        return ("FAILED: " + proc.stderr.strip().splitlines()[-1] if proc.stderr else "FAILED", str(out))
+        return (
+            "FAILED: " + proc.stderr.strip().splitlines()[-1]
+            if proc.stderr
+            else "FAILED",
+            str(out),
+        )
     return ("created", str(out))
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--repos", nargs="*", default=None,
-                   help="Subset of repo names (default: all discovered).")
-    p.add_argument("--force", action="store_true", help="Regenerate bundles even if present.")
+    p.add_argument(
+        "--repos",
+        nargs="*",
+        default=None,
+        help="Subset of repo names (default: all discovered).",
+    )
+    p.add_argument(
+        "--force", action="store_true", help="Regenerate bundles even if present."
+    )
     args = p.parse_args(argv)
 
     repos = args.repos or discover_repos()

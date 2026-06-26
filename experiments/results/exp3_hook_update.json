@@ -1,23 +1,37 @@
 {
   "experiment": "hook_update",
-  "generated_at": "2026-06-25T16:39:23",
+  "generated_at": "2026-06-26T11:09:49",
   "branch": "main",
-  "hook_path": "/tmp/exp3-lah3_fjj/repo.git/hooks/post-receive",
+  "hook_path": "/tmp/exp3-hhil1e8w/repo.git/hooks/post-receive",
   "verdict": "PASS",
   "steps": [
     {
       "step": "first_push",
-      "new_oid": "527106962482d6d70be7de6b8a48a1f03b0b90dc",
+      "new_oid": "f6ef7ca1d515b1b05e6365e8d5e6c28924f03373",
       "cache_built": true,
       "edited_path_in_manifest": true,
-      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/527106962482d6d70be7de6b8a48a1f03b0b90dc (1 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-lah3_fjj/repo.git\n * [new branch]      HEAD -> main"
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/f6ef7ca1d515b1b05e6365e8d5e6c28924f03373 (1 files, 0 symbols, ctags=False, mode=full, reindexed=0)        \nTo /tmp/exp3-hhil1e8w/repo.git\n * [new branch]      HEAD -> main",
+      "load": {
+        "mode": "full",
+        "parent": null,
+        "files_reindexed": 0,
+        "files_carried_forward": 0,
+        "content_bytes_materialized": 0
+      }
     },
     {
       "step": "second_push",
-      "new_oid": "6eb3f22ffbd6ff8ba157ce4ec7248d8397c34e25",
+      "new_oid": "668a571368711b7baf8e0f635a96e60443b33ef0",
       "cache_built": true,
       "total_cache_refs": 2,
-      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/6eb3f22ffbd6ff8ba157ce4ec7248d8397c34e25 (2 files, 0 symbols, ctags=False)        \nTo /tmp/exp3-lah3_fjj/repo.git\n   5271069..6eb3f22  HEAD -> main"
+      "hook_stderr": "remote: agentcache: refs/heads/main -> refs/agent-cache/668a571368711b7baf8e0f635a96e60443b33ef0 (2 files, 0 symbols, ctags=False, mode=full, reindexed=0)        \nTo /tmp/exp3-hhil1e8w/repo.git\n   f6ef7ca..668a571  HEAD -> main",
+      "load": {
+        "mode": "full",
+        "parent": null,
+        "files_reindexed": 0,
+        "files_carried_forward": 0,
+        "content_bytes_materialized": 0
+      }
     }
   ]
 }

@@ -11,11 +11,17 @@ FILES is also importable as a module-level constant so test modules
 that need to reference file content directly can do:
 
     from tests.conftest import FILES
+
+make_commit() is a plain helper (not a fixture) that creates a new
+commit on top of an existing commit OID.  Import it directly:
+
+    from tests.conftest import make_commit
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Optional
 
 import pygit2
 import pytest
@@ -53,7 +59,7 @@ class TokenRefresher:
         return self._token
 
 
-def make_refresher(client_id: str, client_secret: str) -> \"TokenRefresher\":
+def make_refresher(client_id: str, client_secret: str) -> "TokenRefresher":
     \"\"\"Factory: build and return a TokenRefresher.\"\"\"
     return TokenRefresher(client_id, client_secret)
 """,
@@ -138,3 +144,71 @@ def cfg(repo):
     """Return an :class:`AgentCacheConfig` pointing at the test repo."""
     r, _ = repo
     return AgentCacheConfig(repo_dir=r.path)
+
+
+# ---------------------------------------------------------------------------
+# make_commit helper (plain function, not a fixture)
+# ---------------------------------------------------------------------------
+
+
+def make_commit(
+    repo: pygit2.Repository,
+    parent_hex: str,
+    files: Optional[Dict[str, str]] = None,
+    *,
+    removed: "tuple | list" = (),
+    message: str = "change",
+    branch: str = "refs/heads/master",
+) -> str:
+    """Create a new commit on top of *parent_hex* and return its hex OID.
+
+    Reads the parent commit's tree into an in-memory index, applies
+    *files* additions/modifications and *removed* deletions, writes
+    a new tree, and creates a commit with a single parent.
+
+    Args:
+        repo:       The bare pygit2.Repository to write into.
+        parent_hex: Hex OID of the parent commit.
+        files:      ``{path: content}`` mapping of files to add or overwrite.
+        removed:    Iterable of paths to delete from the parent tree.
+        message:    Commit message.
+        branch:     Ref to update (e.g. ``"refs/heads/master"``).
+
+    Returns:
+        Hex OID string of the newly created commit.
+    """
+    parent_commit = repo[parent_hex]
+    if isinstance(parent_commit, pygit2.Tag):
+        parent_commit = parent_commit.peel(pygit2.Commit)
+
+    # Seed the index from the parent tree.
+    index = pygit2.Index()
+    index.read_tree(parent_commit.tree)
+
+    # Apply deletions.
+    for path in removed:
+        try:
+            index.remove(path)
+        except (KeyError, OSError):
+            pass  # already absent — that's fine
+
+    # Apply additions / modifications.
+    if files:
+        for path, content in files.items():
+            data = content.encode() if isinstance(content, str) else content
+            blob_oid = repo.create_blob(data)
+            index.add(pygit2.IndexEntry(path, blob_oid, _BLOB_MODE))
+
+    # Write the new tree into the object store.
+    tree_oid = index.write_tree(repo)
+
+    sig = pygit2.Signature("Test Author", "test@example.com")
+    commit_oid = repo.create_commit(
+        branch,
+        sig,
+        sig,
+        message + "\n",
+        tree_oid,
+        [parent_commit.id],
+    )
+    return str(commit_oid)

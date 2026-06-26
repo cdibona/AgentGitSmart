@@ -4,6 +4,7 @@ Every knob has an ``AGENTCACHE_`` prefix so it composes cleanly with a git
 hook environment. Nothing here is secret; auth tokens for the promisor and the
 index service are handled by the surrounding infra, not this process.
 """
+
 from __future__ import annotations
 
 import os
@@ -47,18 +48,35 @@ class AgentCacheConfig:
     # This makes the post-receive hook an optimization, not a hard requirement:
     # a repo "adopts" agentcache the moment the service serves its first request.
     lazy_generation: bool = True
+    # Delta symbol indexing: when True, reindex only changed files against the
+    # parent commit's symbol index rather than rebuilding from scratch.
+    delta_symbols: bool = True
+    # Delta on merge commits: when True, delta is eligible using the first parent
+    # as the base. When False, merge commits always trigger a full rebuild.
+    delta_on_merge: bool = True
+    # Delta max ratio: if the fraction of changed files exceeds this threshold,
+    # fall back to a full rebuild. None disables the threshold check.
+    delta_max_ratio: Optional[float] = None
 
     @classmethod
-    def from_env(cls, env_path: Optional[str] = None, *, repo_dir: Optional[str] = None) -> "AgentCacheConfig":
+    def from_env(
+        cls, env_path: Optional[str] = None, *, repo_dir: Optional[str] = None
+    ) -> "AgentCacheConfig":
         # load_dotenv is a no-op if the file is absent, so this is safe in prod
         # where config arrives as real environment variables.
         load_dotenv(env_path, override=False)
-        repo = repo_dir or os.environ.get("AGENTCACHE_REPO_DIR") or os.environ.get("GIT_DIR")
+        repo = (
+            repo_dir
+            or os.environ.get("AGENTCACHE_REPO_DIR")
+            or os.environ.get("GIT_DIR")
+        )
         if not repo:
             raise ValueError(
                 "repo_dir not set: pass repo_dir=, or set AGENTCACHE_REPO_DIR / GIT_DIR"
             )
         bundle_dir = os.environ.get("AGENTCACHE_BUNDLE_DIR") or None
+        raw_ratio = os.environ.get("AGENTCACHE_DELTA_MAX_RATIO")
+        delta_max_ratio: Optional[float] = float(raw_ratio) if raw_ratio else None
         return cls(
             repo_dir=repo,
             ref_prefix=os.environ.get("AGENTCACHE_REF_PREFIX", "refs/agent-cache"),
@@ -70,5 +88,14 @@ class AgentCacheConfig:
             service_host=os.environ.get("AGENTCACHE_SERVICE_HOST", "127.0.0.1"),
             service_port=int(os.environ.get("AGENTCACHE_SERVICE_PORT", "8765")),
             service_url=os.environ.get("AGENTCACHE_SERVICE_URL", ""),
-            lazy_generation=_bool(os.environ.get("AGENTCACHE_LAZY_GENERATION"), default=True),
+            lazy_generation=_bool(
+                os.environ.get("AGENTCACHE_LAZY_GENERATION"), default=True
+            ),
+            delta_symbols=_bool(
+                os.environ.get("AGENTCACHE_DELTA_SYMBOLS"), default=True
+            ),
+            delta_on_merge=_bool(
+                os.environ.get("AGENTCACHE_DELTA_ON_MERGE"), default=True
+            ),
+            delta_max_ratio=delta_max_ratio,
         )

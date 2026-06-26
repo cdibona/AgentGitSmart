@@ -1,4 +1,5 @@
 """Tests for lazy cache generation (service) and the erase/uninstall tool."""
+
 from __future__ import annotations
 
 import pygit2
@@ -89,7 +90,7 @@ def test_manifest_handles_gitlink_submodule(repo, cfg):
     man = build_manifest(r, str(commit_oid))
     by_path = {e["path"]: e for e in man["entries"]}
     assert by_path["submod"]["mode"] == "160000"
-    assert by_path["submod"]["size"] is None      # gitlink: never dereferenced
+    assert by_path["submod"]["size"] is None  # gitlink: never dereferenced
     assert by_path["real.txt"]["size"] == 3
 
 

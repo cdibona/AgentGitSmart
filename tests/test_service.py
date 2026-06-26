@@ -1,11 +1,11 @@
 """Service tests: the endpoints an agent VM hits to plan its batched fetch."""
+
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from agentcache import cache_writer
 from agentcache.hook import generate_for_commit
 from agentcache.service import create_app
 

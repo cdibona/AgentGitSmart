@@ -8,12 +8,14 @@ Wire it up with a thin shell shim (see hooks/post-receive) that execs
 We generate for branch tips (refs/heads/*), skip deletions, and emit a
 blobless bootstrap bundle if AGENTCACHE_BUNDLE_DIR is set.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import sys
-from typing import Any, Dict
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 import pygit2
 
@@ -27,7 +29,9 @@ from . import symbols as symbols_mod
 ZERO_OID = "0" * 40
 
 
-def _render_agents_md(cfg: AgentCacheConfig, meta: Dict[str, Any], commit_oid: str) -> bytes:
+def _render_agents_md(
+    cfg: AgentCacheConfig, meta: Dict[str, Any], commit_oid: str
+) -> bytes:
     """Render a complete, actionable agents.md document for this cache commit.
 
     Uses values already present in *meta* so no additional I/O is required.
@@ -89,7 +93,7 @@ git cat-file blob <OID>
 Base URL: `{service_url}`
 
 | Method | Path | Purpose |
-|--------|------|---------|
+|--------|------|---------| 
 | `GET`  | `/healthz` | Liveness check — `{{"status":"ok"}}` |
 | `GET`  | `/caches` | List commits that have a cache entry |
 | `GET`  | `/cache/<commit>/manifest` | Full flat path→{{oid,size,mode}} for the commit |
@@ -135,12 +139,187 @@ that returns a handful of OIDs, fetched in one pack.
     return doc.encode()
 
 
+# ---------------------------------------------------------------------------
+# Delta strategy decision.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _SymStrategy:
+    """Result of the delta-vs-full strategy decision.
+
+    Attributes:
+        mode:           ``"full"`` or ``"delta"``.
+        parent:         Parent commit OID for delta mode, else ``None``.
+        reason:         Fallback reason string for non-root full builds,
+                        else ``None``.
+        parent_symbols: Parsed parent ``symbols.json`` dict for delta mode,
+                        else ``None``.
+    """
+
+    mode: str
+    parent: Optional[str]
+    reason: Optional[str]
+    parent_symbols: Optional[Dict[str, Any]]
+
+
+def _decide_symbol_strategy(
+    repo: pygit2.Repository,
+    commit_oid: str,
+    cfg: AgentCacheConfig,
+) -> _SymStrategy:
+    """FIRST-MATCH-WINS precedence ladder for delta vs full symbol indexing.
+
+    Walks through eligibility conditions in order; the first condition that
+    fails returns a full-build strategy with the corresponding reason string.
+    Root commits and delta-eligible commits return a ``None`` reason.
+    """
+    _full = lambda reason: _SymStrategy(  # noqa: E731
+        mode="full", parent=None, reason=reason, parent_symbols=None
+    )
+
+    # 1. Delta feature disabled.
+    if not cfg.delta_symbols:
+        return _full("delta_disabled")
+
+    # 2. ctags unavailable right now.
+    if not symbols_mod.ctags_available(cfg.ctags_bin):
+        return _full("ctags_unavailable")
+
+    # Read commit parents.
+    commit = repo[commit_oid]
+    if isinstance(commit, pygit2.Tag):
+        commit = commit.peel(pygit2.Commit)
+    parent_ids = list(commit.parent_ids)
+
+    # 3. Root commit (no parents) — natural full build, no fallback reason.
+    if not parent_ids:
+        return _full(None)
+
+    # Choose the first parent as the delta base.
+    first_parent = str(parent_ids[0])
+
+    # 4. Merge commit with delta_on_merge disabled.
+    if len(parent_ids) > 1 and not cfg.delta_on_merge:
+        return _full("merge_commit")
+
+    # 5. Parent has no cache ref.
+    parent_ref = f"{cfg.ref_prefix.rstrip('/')}/{first_parent}"
+    if parent_ref not in repo.references:
+        return _full("parent_uncached")
+
+    # 6. Parent symbols.json unreadable.
+    try:
+        raw = cache_writer.read_artifact(
+            repo, first_parent, "symbols.json", ref_prefix=cfg.ref_prefix
+        )
+        parent_syms = json.loads(raw)
+    except (KeyError, json.JSONDecodeError):
+        return _full("parent_unreadable")
+
+    # 7. Schema or generator version mismatch.
+    if parent_syms.get("schema") != symbols_mod.SYMBOLS_SCHEMA:
+        return _full("schema_mismatch")
+    if parent_syms.get("generator_version") != GENERATOR_VERSION:
+        return _full("version_mismatch")
+
+    # 8. Parent was built without ctags (can't carry forward reliable data).
+    if not parent_syms.get("ctags_available", False):
+        return _full("parent_ctags_unavailable")
+
+    # All checks passed — delta eligible.
+    return _SymStrategy(
+        mode="delta",
+        parent=first_parent,
+        reason=None,
+        parent_symbols=parent_syms,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cache generation.
+# ---------------------------------------------------------------------------
+
+
 def generate_for_commit(
     repo: pygit2.Repository, commit_oid: str, cfg: AgentCacheConfig
 ) -> Dict[str, Any]:
     """Build artifacts for one commit, store under the side ref, return summary."""
     man = manifest_mod.build_manifest(repo, commit_oid)
-    syms = symbols_mod.build_symbol_index(repo, commit_oid, ctags_bin=cfg.ctags_bin)
+    strategy = _decide_symbol_strategy(repo, commit_oid, cfg)
+
+    files_in_tree = man["entry_count"]
+    path_sizes = {e["path"]: e["size"] or 0 for e in man["entries"]}
+
+    if strategy.mode == "delta":
+        assert strategy.parent is not None  # guaranteed by _decide_symbol_strategy
+        assert strategy.parent_symbols is not None
+
+        diff = symbols_mod.diff_paths(repo, strategy.parent, commit_oid)
+
+        # Re-check ratio threshold now that we have the actual diff.
+        if (
+            cfg.delta_max_ratio is not None
+            and files_in_tree > 0
+            and diff.changed_count / files_in_tree > cfg.delta_max_ratio
+        ):
+            # Downgrade to full build.
+            syms = symbols_mod.build_symbol_index(
+                repo, commit_oid, ctags_bin=cfg.ctags_bin
+            )
+            ctags_ok = syms["ctags_available"]
+            generation: Dict[str, Any] = {
+                "mode": "full",
+                "parent": None,
+                "files_in_tree": files_in_tree,
+                "files_changed": files_in_tree,
+                "files_reindexed": files_in_tree if ctags_ok else 0,
+                "files_carried_forward": 0,
+                "content_bytes_materialized": sum(path_sizes.values())
+                if ctags_ok
+                else 0,
+                "symbol_count": syms["symbol_count"],
+                "ctags_available": ctags_ok,
+                "fallback_reason": "ratio_threshold",
+            }
+        else:
+            syms = symbols_mod.build_symbol_index_delta(
+                repo,
+                commit_oid,
+                strategy.parent_symbols,
+                diff,
+                ctags_bin=cfg.ctags_bin,
+            )
+            generation = {
+                "mode": "delta",
+                "parent": strategy.parent,
+                "files_in_tree": files_in_tree,
+                "files_changed": diff.changed_count,
+                "files_reindexed": len(diff.reindex),
+                "files_carried_forward": files_in_tree - len(diff.reindex),
+                "content_bytes_materialized": sum(
+                    path_sizes.get(p, 0) for p in diff.reindex
+                ),
+                "symbol_count": syms["symbol_count"],
+                "ctags_available": syms["ctags_available"],
+                "fallback_reason": None,
+            }
+    else:
+        syms = symbols_mod.build_symbol_index(repo, commit_oid, ctags_bin=cfg.ctags_bin)
+        ctags_ok = syms["ctags_available"]
+        generation = {
+            "mode": "full",
+            "parent": None,
+            "files_in_tree": files_in_tree,
+            "files_changed": files_in_tree,
+            "files_reindexed": files_in_tree if ctags_ok else 0,
+            "files_carried_forward": 0,
+            "content_bytes_materialized": sum(path_sizes.values()) if ctags_ok else 0,
+            "symbol_count": syms["symbol_count"],
+            "ctags_available": ctags_ok,
+            "fallback_reason": strategy.reason,
+        }
+
     meta = {
         "schema": 1,
         "generator_version": GENERATOR_VERSION,
@@ -149,6 +328,7 @@ def generate_for_commit(
         "manifest_entries": man["entry_count"],
         "symbol_count": syms["symbol_count"],
         "ctags_available": syms["ctags_available"],
+        "generation": generation,
     }
     artifacts = {
         "manifest.json": json.dumps(man, separators=(",", ":")).encode(),
@@ -165,6 +345,7 @@ def generate_for_commit(
         bot_email=cfg.bot_email,
     )
     result["meta"] = meta
+    result["generation"] = generation
     return result
 
 
@@ -202,14 +383,17 @@ def main(argv=None, stdin=None) -> int:
             continue
         if summary:
             any_done = True
+            gen = summary.get("generation", {})
             print(
                 "agentcache: {ref} -> {cache_ref} "
-                "({n} files, {s} symbols, ctags={c})".format(
+                "({n} files, {s} symbols, ctags={c}, mode={m}, reindexed={r})".format(
                     ref=summary["ref"],
                     cache_ref=summary["cache_ref"],
                     n=summary["meta"]["manifest_entries"],
                     s=summary["meta"]["symbol_count"],
                     c=summary["meta"]["ctags_available"],
+                    m=gen.get("mode", "full"),
+                    r=gen.get("files_reindexed", 0),
                 ),
                 file=sys.stderr,
             )

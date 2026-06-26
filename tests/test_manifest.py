@@ -1,4 +1,5 @@
 """Manifest tests: completeness, flatness, correct OIDs/sizes/sorting."""
+
 from __future__ import annotations
 
 import subprocess
@@ -37,7 +38,9 @@ def test_manifest_sizes_and_oids_match_git(repo):
         # OID must equal what git itself resolves for path@commit.
         expect = subprocess.run(
             ["git", "--git-dir", r.path, "rev-parse", f"{commit}:{rel}"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         assert entry["oid"] == expect
 

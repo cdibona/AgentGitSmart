@@ -1,5 +1,6 @@
 """Symbol-index tests. Skip the ctags-dependent assertions when ctags is
 absent, but still verify graceful degradation."""
+
 from __future__ import annotations
 
 import pytest
@@ -28,4 +29,22 @@ def test_indexes_known_symbols(repo):
     assert "str_len" in idx["symbols"]
     # Location points at the right file (path normalized, no leading ./).
     locs = idx["symbols"]["TokenRefresher"]
-    assert any(l["path"] == "src/app.py" for l in locs)
+    assert any(loc["path"] == "src/app.py" for loc in locs)
+
+
+@pytest.mark.skipif(not sym.ctags_available(), reason="universal-ctags not installed")
+def test_full_index_is_canonically_sorted(repo):
+    """Symbol names must be sorted; each symbol's locations must be sorted."""
+    r, commit = repo
+    idx = sym.build_symbol_index(r, commit)
+    symbols = idx["symbols"]
+
+    # Symbol names must be in ascending lexicographic order.
+    assert list(symbols.keys()) == sorted(symbols.keys()), "Symbol names are not sorted"
+
+    # Each symbol's location list must be sorted by the canonical key.
+    for name, locs in symbols.items():
+        sort_keys = [sym._loc_sort_key(loc) for loc in locs]
+        assert sort_keys == sorted(sort_keys), (
+            f"Locations for symbol {name!r} are not sorted"
+        )

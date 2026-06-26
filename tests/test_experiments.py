@@ -1,4 +1,5 @@
 """Tests for the experiment suite (lightweight; no big-repo / network paths)."""
+
 from __future__ import annotations
 
 import random
@@ -10,6 +11,7 @@ from testharness.real_agent import (
     _add_exclamation,
     _comment_prefixes,
 )
+from agentcache import symbols as sym
 
 
 def test_comment_prefixes_by_language():
@@ -54,9 +56,16 @@ def test_fmt_bytes_units():
 
 def test_runresult_to_dict_roundtrip():
     r = RunResult(
-        repo="redis", method="agentcache", iteration=1, seed=42,
-        cache_existed_before=False, cache_refs_before=0, cache_refs_after=1,
-        cache_built_this_run=True, bytes_proxy_out=1234, bytes_proxy_in=10,
+        repo="redis",
+        method="agentcache",
+        iteration=1,
+        seed=42,
+        cache_existed_before=False,
+        cache_refs_before=0,
+        cache_refs_after=1,
+        cache_built_this_run=True,
+        bytes_proxy_out=1234,
+        bytes_proxy_in=10,
         wall_s=0.5,
     )
     d = r.to_dict()
@@ -78,3 +87,22 @@ def test_exp3_hook_update_passes():
     # Second push produced a second, distinct cache ref.
     assert steps["second_push"]["cache_built"] is True
     assert steps["second_push"]["total_cache_refs"] == 2
+
+    # Load observability: first push must always be a full build.
+    first_load = steps["first_push"]["load"]
+    assert first_load.get("mode") == "full"
+
+    # Load observability: second push is delta when ctags is available,
+    # otherwise it degrades gracefully to full.
+    second_load = steps["second_push"]["load"]
+    if sym.ctags_available():
+        assert second_load.get("mode") == "delta", (
+            f"Expected delta for second push (ctags available), got: {second_load}"
+        )
+        assert second_load.get("files_reindexed") == 1, (
+            f"Expected files_reindexed==1 for second push, got: {second_load}"
+        )
+    else:
+        assert second_load.get("mode") == "full", (
+            f"Expected full for second push (ctags absent), got: {second_load}"
+        )
