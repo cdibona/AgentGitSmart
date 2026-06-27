@@ -41,6 +41,21 @@ server and making the repo agent-aware — by following the section below. *(If 
 repo already has an `AGENTS.md`, just say: "Read AGENTS.md — this repo uses
 agentcache.")*
 
+**Not sure it's worth adopting?** Point the analyzer at a local clone (or a
+GitHub URL) for a quick, honest read on whether agentcache would help *your*
+repo:
+
+```bash
+python scripts/assess_repo.py /path/to/your-repo        # or a https://github.com/... URL
+```
+
+It reports `agentcache worthwhile`, `blobless is enough` (your repo is too small
+or too lean to benefit), or `inconclusive — measure to be sure`. This is a
+**static prediction from repo shape, not a measured result** — it is deliberately
+conservative and **abstains rather than over-promise** (a false "adopt" wastes
+your time). Anything short of `worthwhile` means: don't adopt on faith — run the
+[test harness](#try-it--the-test-harness) to *measure* it on your repo first.
+
 ### If you've been sent here by your human
 
 You're an AI agent about to work on a repo that uses (or should use) agentcache.
