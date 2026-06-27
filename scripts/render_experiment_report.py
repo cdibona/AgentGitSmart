@@ -37,6 +37,26 @@ _MARGINAL_WARM_THRESHOLD = 0.25
 # Hook wall time above this threshold is flagged as expensive maintenance.
 _EXPENSIVE_HOOK_WALL_S = 1.0
 
+# ---------------------------------------------------------------------------
+# Suitability verdict thresholds
+# Tune these constants to adjust the recommendation labels without touching logic.
+# ---------------------------------------------------------------------------
+
+# Repos smaller than this file count are unlikely to benefit meaningfully
+# from agentcache overhead (small manifest + few targeted blobs).
+_VERDICT_MIN_FILES = 150
+
+# Warm-saving ratio below this → saving is too marginal to justify overhead.
+_VERDICT_MIN_WARM_RATIO = 0.15
+
+# Break-even passes above this → impractical for typical agent workflows.
+_VERDICT_MAX_BE_BLOBLESS = 200
+
+# Warm-saving ratio must be at least this AND break-even at most the next
+# threshold to qualify as "agentcache worthwhile".
+_VERDICT_GOOD_WARM_RATIO = 0.40
+_VERDICT_MAX_BE_GOOD = 50
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -103,6 +123,76 @@ def _safe_ratio(a: float | None, b: float | None) -> float | None:
     if a is None or b is None or b == 0:
         return None
     return a / b
+
+
+# ---------------------------------------------------------------------------
+# Suitability verdict (pure — no I/O; unit-testable)
+# ---------------------------------------------------------------------------
+
+
+def suitability_verdict(
+    *,
+    files: "int | None",
+    warm_saving_ratio: "float | None",
+    break_even_passes: "int | None",
+) -> "tuple[str, str]":
+    """Return a *(label, reason)* recommendation for this repo.
+
+    Args:
+        files:             Number of files in the repo tree (None if unknown).
+        warm_saving_ratio: (blobless_warm - agentcache_warm) / blobless_warm,
+                           in the range [0, 1].  None if data unavailable.
+        break_even_passes: Ceiling of cold_overhead / warm_saved, i.e. how many
+                           warm agent passes pay off the cold overhead.  None if
+                           cold data is missing or there is no warm byte win.
+
+    Returns:
+        A *(label, reason)* pair where *label* is one of:
+          - ``"blobless is enough"``
+          - ``"worth it only at high reuse"``
+          - ``"agentcache worthwhile"``
+    """
+    # Tier 0: no warm byte win at all → blobless is obviously preferred
+    if warm_saving_ratio is None or warm_saving_ratio <= 0:
+        return (
+            "blobless is enough",
+            "agentcache shows no warm byte win over blobless here",
+        )
+
+    pct = round(warm_saving_ratio * 100, 1)
+
+    # Tier 1: small repo OR marginal saving OR impractical / unknown break-even
+    if (
+        (files is not None and files < _VERDICT_MIN_FILES)
+        or warm_saving_ratio < _VERDICT_MIN_WARM_RATIO
+        or break_even_passes is None
+        or break_even_passes > _VERDICT_MAX_BE_BLOBLESS
+    ):
+        be_note = (
+            f"break-even ~{break_even_passes} passes"
+            if break_even_passes is not None
+            else "break-even unknown (missing cold data)"
+        )
+        return (
+            "blobless is enough",
+            f"small/marginal: ~{pct}% warm saving, {be_note} — not worth agentcache's overhead",
+        )
+
+    # Tier 2: decent saving but high break-even → only pays at heavy reuse
+    if (
+        warm_saving_ratio < _VERDICT_GOOD_WARM_RATIO
+        or break_even_passes > _VERDICT_MAX_BE_GOOD
+    ):
+        return (
+            "worth it only at high reuse",
+            f"pays off only when many agents work per commit (break-even ~{break_even_passes} passes)",
+        )
+
+    # Tier 3: meaningful saving AND quick break-even → agentcache worthwhile
+    return (
+        "agentcache worthwhile",
+        f"meaningful warm saving (~{pct}%), break-even ~{break_even_passes} passes",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -285,34 +375,39 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
 
     Verdicts are neutral: they describe the break-even arithmetic without
     promotional framing.  Impractical break-evens (> _IMPRACTICAL_BREAK_EVEN) are
-    explicitly called out.
+    explicitly called out.  Each row also carries a Recommendation label from
+    suitability_verdict() so maintainers can see at a glance whether agentcache
+    is worth deploying for a given repo.
     """
     lines: list[str] = []
     lines.append("### Cost / benefit vs blobless (the honest competitor)\n\n")
     lines.append(
         "| Repo | warm saved/pass vs blobless | warm vs naive "
-        "| cold overhead vs blobless | break-even (warm passes) | verdict |\n"
+        "| cold overhead vs blobless | break-even (warm passes) | verdict | Recommendation |\n"
     )
     lines.append(
         "|------|----------------------------:|:--------------"
-        ":|---------------------------:|:------------------------:|:--------|\n"
+        ":|---------------------------:|:------------------------:|:--------|:---------------|\n"
     )
 
-    # Accumulate (repo_short, break_even) for the summary line.
+    # Accumulate (repo_short, break_even) for the break-even summary line.
     valid_be: list[tuple[str, int]] = []
+    # Accumulate recommendation labels for the per-experiment one-liner.
+    rec_counts: dict[str, int] = {}
 
     for camp in campaigns:
         repo = camp.get("repo", "?")
         repo_short = repo.removesuffix(".git")
         err = camp.get("error")
         if err:
-            lines.append(f"| {repo} | — | — | — | — | FAILED |\n")
+            lines.append(f"| {repo} | — | — | — | — | FAILED | — |\n")
             continue
 
         summ = camp.get("summary", {})
         bl = summ.get("blobless", {}) or {}
         ac = summ.get("agentcache", {}) or {}
         win = summ.get("_win_vs_naive", {}) or {}
+        nfiles: int | None = camp.get("files") or None
 
         bl_warm: float | None = bl.get("warm_avg_bytes")
         ac_warm: float | None = ac.get("warm_avg_bytes")
@@ -373,13 +468,43 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
                 )
             valid_be.append((repo_short, break_even))
 
+        # --- suitability recommendation ---
+        warm_ratio: float | None = (
+            _safe_ratio(warm_saved, bl_warm) if warm_saved is not None else None
+        )
+        rec_label, _rec_reason = suitability_verdict(
+            files=nfiles,
+            warm_saving_ratio=warm_ratio,
+            break_even_passes=break_even,
+        )
+        rec_counts[rec_label] = rec_counts.get(rec_label, 0) + 1
+
         lines.append(
-            f"| {repo} | {warm_col} | {win_col} | {cold_col} | {be_col} | {verdict} |\n"
+            f"| {repo} | {warm_col} | {win_col} | {cold_col} | {be_col} "
+            f"| {verdict} | {rec_label} |\n"
         )
 
     lines.append("\n")
 
-    # --- Neutral summary line ---
+    # --- Recommendation one-liner (per-experiment aggregate) ---
+    total_repos = sum(rec_counts.values())
+    if total_repos > 0:
+        worthwhile = rec_counts.get("agentcache worthwhile", 0)
+        blobless_ok = rec_counts.get("blobless is enough", 0)
+        high_reuse = rec_counts.get("worth it only at high reuse", 0)
+        rec_parts = []
+        if worthwhile:
+            rec_parts.append(f"{worthwhile} agentcache worthwhile")
+        if blobless_ok:
+            rec_parts.append(f"{blobless_ok} blobless-is-enough")
+        if high_reuse:
+            rec_parts.append(f"{high_reuse} high-reuse-only")
+        lines.append(
+            f"> **Recommendation:** {total_repos} repo(s) assessed — "
+            f"{', '.join(rec_parts) if rec_parts else 'no data'}.\n\n"
+        )
+
+    # --- Neutral break-even summary line ---
     if len(valid_be) >= 2:
         fastest = min(valid_be, key=lambda x: x[1])
         slowest = max(valid_be, key=lambda x: x[1])

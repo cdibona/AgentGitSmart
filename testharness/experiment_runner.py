@@ -46,6 +46,7 @@ import pygit2
 
 from . import docker_runner
 from .real_agent import run_real_agent
+from agentcache import bundle as bundle_mod
 from agentcache import cache_writer
 from agentcache import hook as hook_mod
 from agentcache import uninstall as uninstall_mod
@@ -55,8 +56,35 @@ REF_PREFIX = "refs/agent-cache"
 EXP_BRANCH_PREFIX = "agentcache-exp"
 # Project root is the parent of testharness/; scripts/ lives there.
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+# Local bundle directory that _find_bundle() searches on non-Docker runs.
+_LOCAL_BUNDLE_DIR = Path(__file__).resolve().parent.parent / "benchmark" / "bundles"
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Module-level pure helpers — testable without instantiating ExperimentRunner
+# ---------------------------------------------------------------------------
+
+
+def should_use_bundle(method: str, is_cold: bool, cold_bundle: bool) -> bool:
+    """Return whether this agent pass should present a pre-built bundle.
+
+    Warm passes (is_cold=False) always use the bundle — that is the steady-state
+    path.  Cold passes follow the config:
+
+    * cold_bundle=False (default): honest first-visit — no bundle, so the full
+      history cost flows through the git daemon exactly as a real first agent on
+      a fresh commit would pay it.
+    * cold_bundle=True: production-amortised cold — the bundle was pre-built once
+      per commit (as the CDN would serve it), so this pass pays only the tiny
+      delta and blob fetch, not the full history.
+
+    The cold_bundle flag is only meaningful for the agentcache method; naive and
+    blobless do not use bundles at all, so cold naive/blobless always return
+    False regardless.
+    """
+    return (not is_cold) or (method == "agentcache" and cold_bundle)
 
 
 # ---------------------------------------------------------------------------
@@ -205,15 +233,13 @@ class ExperimentRunner:
         seed: int,
         pct: float,
         use_docker: bool,
+        cold_bundle: bool = False,
     ) -> dict:
         if method == "agentcache":
             await self.svc.switch_repo(repo_dir)
 
         cold = (method == "agentcache") and not self.cache_ref_exists(repo_dir, commit)
-        # Honest cold: on a genuinely cold commit (no cache ref yet) there is no
-        # CDN bundle either, so agentcache must pull full history through the
-        # network — the real first-visit cost.  Only warm passes get the bundle.
-        use_bundle = not cold
+        use_bundle = should_use_bundle(method, is_cold=cold, cold_bundle=cold_bundle)
         loop = asyncio.get_event_loop()
 
         snap = self.proxy.snapshot()
@@ -404,6 +430,7 @@ class ExperimentRunner:
         human_commits = int(config.get("human_commits", 0) or 0)
         hook_warms = config["hook_warms"]
         use_docker = bool(config.get("_use_docker", False))
+        cold_bundle = bool(config.get("cold_bundle", False))
         exp_id = config["_exp_id"]
 
         # Start every campaign from a clean (cold) cache.
@@ -427,6 +454,30 @@ class ExperimentRunner:
             f"ref(s), {remaining} remain (verified cold)"
         )
 
+        # When cold_bundle is set, pre-build a blobless bundle so cold agentcache
+        # passes can use it (production-amortised cold path).  We write it to the
+        # same directory and with the same filename that _find_bundle() expects, so
+        # it is picked up automatically.  Failure is guarded: a build error never
+        # crashes the campaign — the pass simply falls back to bundle_used=False.
+        if cold_bundle and "agentcache" in methods:
+            _bundle_path = _LOCAL_BUNDLE_DIR / f"{repo}-{branch}.bundle"
+            try:
+                _repo_obj = pygit2.Repository(repo_dir)
+                bundle_mod.create_blobless_bundle(
+                    _repo_obj,
+                    f"refs/heads/{branch}",
+                    str(_bundle_path),
+                )
+                emit(
+                    f"[{repo}] cold_bundle: pre-built blobless bundle "
+                    f"({_bundle_path.stat().st_size:,} B) → {_bundle_path.name}"
+                )
+            except Exception as _exc:
+                emit(
+                    f"[{repo}] cold_bundle: bundle build FAILED "
+                    f"(cold passes will be bundle-free — bundle_used=False): {_exc}"
+                )
+
         # Spread the requested human commits across the gaps between agent
         # passes, one per gap, starting right after pass 1.  With G = passes-1
         # gaps we can place at most G commits; anything beyond that is ignored
@@ -442,7 +493,15 @@ class ExperimentRunner:
             pass_started_at = datetime.now(timezone.utc).isoformat()
             for method in methods:
                 cell = await self._agent_pass(
-                    repo, repo_dir, branch, commit, method, seed0 + i, pct, use_docker
+                    repo,
+                    repo_dir,
+                    branch,
+                    commit,
+                    method,
+                    seed0 + i,
+                    pct,
+                    use_docker,
+                    cold_bundle=cold_bundle,
                 )
                 cells[method] = cell
                 tag = "COLD" if cell["cold"] else ""
@@ -665,6 +724,7 @@ def describe_experiment(config: dict, use_docker: bool) -> str:
     seed = config.get("seed", 0)
     human_commits = int(config.get("human_commits", 0) or 0)
     hook_warms = bool(config.get("hook_warms", False))
+    cold_bundle = bool(config.get("cold_bundle", False))
 
     isolation = (
         "each agent pass runs in a fresh, disposable Docker container"
@@ -689,13 +749,24 @@ def describe_experiment(config: dict, use_docker: bool) -> str:
     else:
         human = "no human commits"
 
+    if cold_bundle:
+        cold_note = (
+            "COLD agentcache passes use a pre-built blobless bundle (production-amortised "
+            "cold: the bundle is built once per commit and reused, as a CDN would serve it)"
+        )
+    else:
+        cold_note = (
+            "COLD is the honest un-amortised first-visit cost (no pre-built bundle; "
+            "full history flows through the git daemon exactly as a real first agent pays)"
+        )
+
     return (
         f"Cache experiment over {len(repos)} repo(s) "
         f"[{', '.join(repos) if repos else '-'}]: "
         f"{passes} agent pass(es) per repo (pass 1 = COLD/builds the cache, "
         f"later passes = WARM/steady state); methods compared: "
         f"{', '.join(methods) if methods else '-'}; the agent edits {pct}% of "
-        f"source files each pass (seed {seed}); {human}; {isolation}. "
+        f"source files each pass (seed {seed}); {human}; {isolation}; {cold_note}. "
         f"Agent network cost is measured end-to-end through a byte-counting proxy; "
         f"each human step records its own wall time and the cache-rebuild load it "
         f"triggered (delta vs full, files reindexed/carried-forward, bytes materialized)."

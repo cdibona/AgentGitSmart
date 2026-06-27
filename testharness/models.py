@@ -114,6 +114,11 @@ class ExperimentConfig(BaseModel):
         "hook"  # how to warm: "hook" | "action" | "both" (hook_warms must be True)
     )
     use_docker: bool = True  # run each pass in a fresh disposable container (default)
+    cold_bundle: bool = (
+        False  # when True, cold agentcache passes are ALLOWED to use the pre-built
+        # blobless bundle (production-amortised cold).  Default False = honest
+        # first-visit cost (no bundle, full history through the network).
+    )
 
 
 class SystemStatus(BaseModel):
