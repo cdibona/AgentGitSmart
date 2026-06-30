@@ -21,14 +21,14 @@ behind the same access control, cheap to fetch in isolation:
   Turns "grep the whole repo" (fetch everything) into a lookup that returns a
   few OIDs.
 
-It also (optionally) emits a **blobless bootstrap bundle** per branch tip for
-CDN-cacheable cold starts. A small query service answers `resolve(paths)` /
-`symbol(name)` with blob OIDs + sizes, so the agent fetches only what it touches
-**in one batched fetch** instead of N lazy round-trips.
+It also (optionally) emits a [**blobless**](docs/BLOBLESS.md) bootstrap bundle
+per branch tip for CDN-cacheable cold starts. A small query service answers
+`resolve(paths)` / `symbol(name)` with blob OIDs + sizes, so the agent fetches
+only what it touches **in one batched fetch** instead of N lazy round-trips.
 
-The payoff, measured end-to-end (see [Try it](#try-it--the-test-harness)):
-an agent editing 2% of a repo pulls **17×–10,000× less** over the network than a
-normal `git clone`, while still getting full history.
+The payoff, measured end-to-end (see [Try it](docs/TESTING.md)): an agent
+editing 2% of a repo pulls **17×–10,000× less** over the network than a normal
+`git clone`, while still getting full history.
 
 ---
 
@@ -62,21 +62,10 @@ or too lean to benefit), or `inconclusive — measure to be sure`. This is a
 conservative and **abstains rather than over-promise** (a false "adopt" wastes
 your time).
 
-**Want the real numbers?** Run a one-shot *measured* trial on your repo — it
-mirrors the repo, stands up a byte-counting proxy, and reports the actual
-network bytes for naive vs blobless vs agentcache (one cold pass to seed the
-artifacts, then the warm steady state) plus the same honest verdict:
-
-```bash
-python scripts/try_agentcache.py /path/to/your-repo     # or a https://github.com/... URL
-# from anywhere (sets up a throwaway venv):
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash -s -- <repo-or-url>
-```
-
-This measures your repo with a simulated agent editing 2% of files. The cold
-column is honest about its caveat (agentcache cold delivers *full history*; the
-blobless column is a `--depth=1` shallow clone — different products), so you can
-judge the steady-state warm saving on its own terms.
+**Want real measured numbers?** From your repo's root:
+`curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash`
+— see [Testing & results](docs/TESTING.md#try-it-on-your-repo) for what it
+measures.
 
 ### If you've been sent here by your human
 
@@ -102,11 +91,11 @@ If it's already set up, go straight to Step 2. **If this is the first time**
   AGENTCACHE_REPO_DIR=/srv/git/myrepo.git python -m agentcache.service
   ```
 - **GitHub** — server hooks don't run; use the CI workflow instead (see
-  [This repo dogfoods agentcache](#this-repo-dogfoods-agentcache)).
+  [This repo dogfoods agentcache](docs/INSTALL.md#this-repo-dogfoods-agentcache)).
 - **Make it discoverable** so the next agent skips Step 1 — drop `AGENTS.md` and
   `.agentcache` in the repo root (`cp docs/ADOPTER_AGENTS_TEMPLATE.md AGENTS.md`,
   then fill in the placeholders; see
-  [Making your repo agent-aware](#making-your-repo-agent-aware)).
+  [Making your repo agent-aware](docs/INSTALL.md#making-your-repo-agent-aware)).
 
 From then on every push keeps the cache current — including pushes from teammates
 who've never heard of agentcache (the hook runs server-side).
@@ -148,365 +137,15 @@ Finally, read the repo's `AGENTS.md` so you can explain agentcache to your human
 
 ---
 
-## Why this shape
+## Dive deeper into AgentCache
 
-- The **map** (trees/manifest) costs ~tree-count bytes regardless of whether the
-  repo's history is 50 MB or 50 GB — history × content is decoupled by
-  `--filter=blob:none --single-branch`.
-- The **judgement** (symbol index, manifest sizes) lets the agent decide *what*
-  to fetch before fetching it.
-- **Batching** turns that judgement into one packfile instead of N round-trips —
-  the single biggest performance lever.
-- **No working tree, no filesystem virtualization** (ProjFS/VFS-for-Git): an
-  agent reads by OID, so the thing that forces materialization simply isn't
-  present.
-
-## Install (server)
-
-```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .   # or put the package on PYTHONPATH
-
-cp .env.example .env   # edit as needed
-cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
-chmod +x /srv/git/myrepo.git/hooks/post-receive
-```
-
-Install [universal-ctags](https://github.com/universal-ctags/ctags) to enable the symbol index (highly recommended — without it the index is empty and every push triggers a full rebuild instead of a delta):
-
-```bash
-sudo apt-get install -y universal-ctags   # recommended: builds the symbol index; without it symbols are empty and every push rebuilds full
-```
-
-The promisor repo must allow filtered and by-OID fetches:
-
-```bash
-git --git-dir=/srv/git/myrepo.git config uploadpack.allowFilter true
-git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
-# (JGit/Gerrit: the same allowfilter / allowReachableSHA1InWant knobs)
-```
-
-## Run the query service
-
-```bash
-AGENTCACHE_REPO_DIR=/srv/git/myrepo.git python -m agentcache.service
-```
-
-Endpoints: `/healthz`, `/caches`, `/cache/<commit>/manifest`,
-`/cache/<commit>/symbol/<name>`, `/cache/<commit>/resolve` (POST). With lazy
-generation enabled, the **first** request for a commit builds the cache on
-demand; later requests (and the `post-receive` hook) reuse it.
-
-## Symbol index: delta mode & load reporting
-
-On every push, agentcache re-ctags **only the changed files** and carries
-forward unchanged symbols from the parent commit's cache
-(`refs/agent-cache/<parent-sha>`), merging everything through
-`canonicalize_symbols()` — a single deterministic chokepoint that guarantees
-**delta output is byte-identical to a full rebuild**
-(preserving the exp2 PRISTINE guarantee).
-
-A full rebuild is used instead — and `fallback_reason` records why — when any
-of the following apply:
-
-- `AGENTCACHE_DELTA_SYMBOLS=false`
-- ctags is not installed (`ctags_unavailable`)
-- root commit (`parent` is `null`; full rebuild, `fallback_reason` omitted)
-- merge commit and `AGENTCACHE_DELTA_ON_MERGE=false` (`merge_commit`)
-- no parent cache exists (`parent_uncached`) or is unreadable (`parent_unreadable`)
-- the parent was built without ctags (`parent_ctags_unavailable`)
-- `GENERATOR_VERSION` mismatch — currently `0.2.0` (`version_mismatch`)
-- `SYMBOLS_SCHEMA` mismatch — currently `2` (`schema_mismatch`)
-- changed-file fraction exceeds `AGENTCACHE_DELTA_MAX_RATIO` (`ratio_threshold`)
-
-Every cache commit embeds a **`generation` block** in `meta.json` that serves
-as the per-push load report:
-
-```json
-{
-  "mode": "full",
-  "parent": "<sha> | null",
-  "files_in_tree": 1234,
-  "files_changed": 12,
-  "files_reindexed": 12,
-  "files_carried_forward": 1222,
-  "content_bytes_materialized": 48200,
-  "symbol_count": 8901,
-  "ctags_available": true,
-  "fallback_reason": null
-}
-```
-
-The same object is returned by `generate_for_commit()` for programmatic use.
-
-Three env vars control delta behaviour (`1/true/yes/on` count as true):
-
-| Variable | Default | Effect |
-|---|---|---|
-| `AGENTCACHE_DELTA_SYMBOLS` | `true` | Enable delta re-indexing |
-| `AGENTCACHE_DELTA_ON_MERGE` | `true` | Allow delta on merge commits (first parent only) |
-| `AGENTCACHE_DELTA_MAX_RATIO` | *(unset)* | Fall back to full when changed/total exceeds this ratio |
-
-## Making your repo agent-aware
-
-Once agentcache is installed on a repo's server, add two small files to that
-repo so agents discover and use it automatically.
-
-### 1 — Drop an `AGENTS.md` in the repo root
-
-`AGENTS.md` is the convention most AI agents check first (Claude Code, Amplifier,
-GitHub Copilot via `.github/copilot-instructions.md`, Cursor via `.cursorrules`).
-Copy the template and fill in the placeholders:
-
-```bash
-cp docs/ADOPTER_AGENTS_TEMPLATE.md /your-repo/AGENTS.md
-# Edit: replace <AGENTCACHE_SERVICE_URL>, <REPO_URL>, etc.
-```
-
-### 2 — Add a `.agentcache` config file (machine-readable discovery)
-
-```toml
-# .agentcache — machine-readable agentcache discovery for AI agents
-# See AGENTS.md for the full cold-start protocol.
-service_url = "https://agentcache.example.com"
-bundle_cdn  = "https://cdn.example.com/bundles/{commit}.bundle"
-```
-
-An agent can then `grep service_url .agentcache`. A `.agentcache.example` ships
-in this repo as a starting point.
-
-### Agent support matrix
-
-| Agent / tool | Reads `AGENTS.md`? | Notes |
-|---|---|---|
-| Amplifier / Claude | ✓ auto | Reads at session start |
-| Claude Code | ✓ auto | Also reads `CLAUDE.md` |
-| GitHub Copilot | ✓ via `.github/copilot-instructions.md` | Symlink or duplicate |
-| Cursor | ✓ via `.cursorrules` | Symlink or duplicate |
-| Generic LLM agent | Depends on system prompt | Paste the cold-start block above |
-
-```bash
-ln -s AGENTS.md .github/copilot-instructions.md
-ln -s AGENTS.md .cursorrules
-```
-
-## How human PRs don't break the cache
-
-A reasonable worry: *if agents rely on this cache, won't an ordinary teammate
-who opens a PR — and has never heard of agentcache — break it?*
-
-**No. agentcache is designed so that humans never have to know it exists.**
-
-- **The cache is generated server-side, not client-side.** It's built by the
-  `post-receive` hook (self-hosted) or a CI workflow (GitHub) when commits
-  land. A contributor pushes or merges a PR exactly as they always have; the
-  cache for the new commit is (re)built automatically. Nobody runs anything
-  special, and there is nothing to forget.
-- **It's keyed by immutable commit OID and lives in a side ref.** Each commit
-  gets its own `refs/agent-cache/<oid>`, outside `refs/heads/*`. A new commit
-  produces a *new* ref; it never edits an existing one. The cache for commit
-  `A` is correct for `A` forever.
-- **It's append-only and read-only to clients.** Agents *fetch* the side ref;
-  they never push it. A non-agentcache-aware agent (or human) doing a plain
-  clone, edit, and push **cannot corrupt** the cache — there is no shared
-  mutable state to corrupt. We prove this in
-  [`experiments/exp2_taint`](experiments/exp2_taint.py): after aware and
-  *un*aware agents hammer the same repos, every cache ref is byte-identical
-  (verdict: **PRISTINE** on all repos).
-- **A human's merge keeps it current automatically.** When a PR merges to
-  `main`, the hook/CI fires on the new HEAD and produces the cache for it. We
-  prove this in [`experiments/exp3_hook_update`](experiments/exp3_hook_update.py):
-  a teammate with zero agentcache awareness pushes, and the next agent finds an
-  up-to-date cache (verdict: **PASS**).
-- **The hook is fail-open.** If cache generation ever errors, it logs and
-  returns success — it **never blocks a push or a merge**. Worst case, an agent
-  finds no cache for one commit and falls back to a normal blobless fetch.
-
-In short: humans do their normal git workflow; the cache follows along. The only
-thing a maintainer does once is install the hook (or the CI workflow); after
-that, PRs "just work."
-
-## This repo dogfoods agentcache
-
-AgentCache uses agentcache **on itself**. GitHub doesn't run server-side
-`post-receive` hooks, so [`.github/workflows/agentcache.yml`](.github/workflows/agentcache.yml)
-does the equivalent in CI: on every push to `main` it runs
-[`scripts/generate_agentcache.py`](scripts/generate_agentcache.py), builds the
-manifest + symbol index (+ a blobless bundle), and publishes
-`refs/agent-cache/<commit>` back to the repo (plus a workflow artifact). The
-[`.agentcache`](.agentcache) file advertises this **service-less, side-ref
-mode**, and [`AGENTS.md`](AGENTS.md) gives agents the exact cold-start. So an
-agent (or a GitHub Action) working on this repo can fetch only the files it
-needs straight from the side ref — no running service required.
-
-## Try it — the test harness
-
-This repo ships a full benchmarking harness that proves the savings on real
-repositories, and a web UI to run and visualize experiments.
-
-```bash
-pip install -r requirements.txt
-python -m experiments.prep                       # configure repos + build bundles
-uvicorn testharness.app:app --host 127.0.0.1 --port 8080
-# open http://127.0.0.1:8080  → "Experiments" tab
-```
-
-### Serving over a tailnet (Tailscale)
-
-To make the harness reachable across your tailnet, set `AGENTCACHE_WEB_HOST`
-to your tailnet IP and pass it to uvicorn:
-
-```bash
-AGENTCACHE_WEB_HOST=100.107.70.97 AGENTCACHE_WEB_PORT=8090 \
-  uvicorn testharness.app:app --host 100.107.70.97 --port 8090
-```
-
-`start.sh` picks up both variables automatically, so
-`AGENTCACHE_WEB_HOST=100.107.70.97 bash testharness/start.sh --port 8090`
-works too.
-
-**Persistent service (systemd `--user`):**
-
-```ini
-# ~/.config/systemd/user/agentcache-harness.service
-[Unit]
-Description=AgentCache Test Harness
-
-[Service]
-WorkingDirectory=/path/to/AgentCache
-Environment=AGENTCACHE_WEB_HOST=100.107.70.97
-Environment=AGENTCACHE_WEB_PORT=8090
-ExecStart=/path/to/AgentCache/.venv/bin/uvicorn \
-    testharness.app:app --host 100.107.70.97 --port 8090
-Restart=always
-
-[Install]
-WantedBy=default.target
-```
-
-```bash
-systemctl --user enable --now agentcache-harness
-# To survive logout / start at boot without an interactive session:
-sudo loginctl enable-linger $USER
-```
-
-**Optional HTTPS overlay via Tailscale:**
-
-```bash
-sudo tailscale serve --bg --https=8443 http://100.107.70.97:8090
-```
-
-What it measures, for three access strategies side by side:
-
-| Strategy | What it does |
+| Topic | Read |
 |---|---|
-| **naive** | `git clone --depth=1` — every blob at HEAD (the GitHub Actions default) |
-| **blobless** | `git clone --filter=blob:none --depth=1` — trees only, lazy per-file fetch |
-| **agentcache** | blobless + CDN bundle + `resolve` → **one** batched fetch of exact blobs |
+| Install & adopt (server hook, GitHub Action, agent-aware setup) | [docs/INSTALL.md](docs/INSTALL.md) |
+| How it works (architecture, delta indexing, loop-safety, guarantees, limits) | [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) |
+| Blobless vs AgentCache — and whether you even need it | [docs/BLOBLESS.md](docs/BLOBLESS.md) |
+| Testing, results & the harness (measure your repo, experiment digest) | [docs/TESTING.md](docs/TESTING.md) |
 
-- **Every pass runs in a fresh, disposable Docker container** by default (true
-  VM-like isolation), and **all git traffic is routed through a byte-counting
-  proxy**, so the network numbers are real, attributed per run.
-- The **Experiments** view runs many projects × many passes and charts
-  **cold (1st visit) vs warm (steady state)**, the **naive/blobless/agentcache**
-  comparison, and a **per-pass timeline** — including optional **human commits**
-  that move HEAD to show how a teammate's push invalidates (or, via the hook,
-  pre-warms) the cache.
-- Honest cold start: on a genuinely fresh repo there is **no cache and no
-  bundle yet**, so the first agentcache pass pays full network cost (as much as
-  or more than blobless) — only *then* does it drop to the warm steady state.
-
-Headline result (warm steady state, agent edits 2% of files):
-
-| Repo | naive | blobless | **agentcache** | vs naive |
-|------|------:|---------:|---------------:|---------:|
-| anthropic-cookbook | 153 MiB | 44 KiB | **16 KiB** | ~9,979× |
-| ohmyzsh | 3 MiB | 61 KiB | **6 KiB** | 570× |
-| prettier | 6 MiB | 549 KiB | **44 KiB** | 150× |
-| cpython | 43 MiB | 586 KiB | **372 KiB** | 118× |
-
-Run the studies headless instead of via the web:
-
-```bash
-python -m experiments.exp1_cold_warm     # cold vs warm across the repo fleet
-python -m experiments.exp2_taint         # does a non-aware agent corrupt the cache? (no)
-python -m experiments.exp3_hook_update   # does a human push keep the cache current? (yes)
-```
-
-## Results from this installation
-
-**→ [`experiments/RECENT.md`](experiments/RECENT.md) — a readable digest of the
-most recent experiment runs** (what was done, per-repo win-vs-naive tables, the
-per-human-commit cache-rebuild load, and the hook-vs-GitHub-Action warm
-comparison). Regenerate any time with
-`python scripts/render_experiment_report.py`.
-
-The numbers above and below were produced by running the studies **on this
-installation** — a 15-repo polyglot fleet (cpython, django, go, git, redis,
-openai/codex, anthropic-sdk-python, anthropic-cookbook, jq, bat, ripgrep,
-prettier, ohmyzsh, git-lfs, fd). The raw artifacts are committed in
-[`experiments/results/`](experiments/results/):
-
-- [`RECENT.md`](experiments/RECENT.md) — digest of the latest harness runs
-  (raw JSON under [`results/harness/`](experiments/results/harness/))
-- [`SUMMARY.md`](experiments/results/SUMMARY.md) — the full write-up
-- [`exp1_cold_warm.json`](experiments/results/exp1_cold_warm.json) — cold vs warm
-  network bytes per repo × method (the data behind the headline table)
-- [`exp2_taint.json`](experiments/results/exp2_taint.json) — cache isolation:
-  **PRISTINE** on every repo after unaware agents run
-- [`exp3_hook_update.json`](experiments/results/exp3_hook_update.json) — a human
-  push keeps the cache current: **PASS**
-
-**agentcache was the bandwidth winner on all 15 repos** (17×–9,979× less than a
-naive clone) at warm steady state, while still delivering full history in a
-single round-trip. The first (cold) visit to a fresh repo pays full network cost
-— honestly measured — before dropping to the warm numbers shown.
-
-To regenerate them yourself, run the three `experiments.*` commands above (or use
-the **Experiments** tab in the web UI) and the JSON files will be rewritten.
-
-## Layout
-
-```
-agentcache/
-  config.py        # .env-driven config
-  manifest.py      # flat path->oid manifest (Index.read_tree; skips gitlinks)
-  symbols.py       # universal-ctags symbol index + delta re-indexing (SYMBOLS_SCHEMA=2; degrades w/o ctags; install: sudo apt-get install -y universal-ctags)
-  cache_writer.py  # orphan commit + refs/agent-cache/<oid> (read + write)
-  bundle.py        # blobless bootstrap bundle (+ verify)
-  hook.py          # post-receive orchestration (fail-open: never blocks a push)
-  service.py       # Flask query API (manifest / symbol / resolve), lazy-gen
-  uninstall.py     # erase all agent-cache artifacts from a repo
-hooks/post-receive # shell shim -> python -m agentcache.hook
-testharness/       # web UI: byte-counting proxy, git daemon, Docker runner, experiments
-experiments/       # headless cold/warm, taint, and hook-update studies
-tests/             # pytest, incl. end-to-end cold-start integration
-```
-
-## Test
-
-```bash
-pytest -q
-```
-
-The cold-start integration test stands up a `file://` promisor, does the
-blobless+bundle-uri clone, asserts the object DB holds trees but not the target
-blob (`GIT_NO_LAZY_FETCH=1`), then hydrates it with a single by-OID fetch.
-
-## Known edges
-
-- **JGit client** does not lazy-fetch missing blobs (throws
-  `MissingObjectException`); use real git / libgit2 as the *client*, or
-  implement the promisor fetch yourself. JGit is fine as the *server*.
-- Filtered bundles **cannot** be `git clone`d directly — consume via
-  `--bundle-uri`. (`tests/test_bundle_and_coldstart.py` pins this behavior.)
-- **Submodules** (gitlinks) point at commits that aren't in the object store;
-  the manifest builder detects mode `160000` and never dereferences them.
-- **Git LFS** files appear in the manifest as their small pointer blobs, not the
-  large object — an LFS-aware agent still needs a second hop to the LFS server.
-- The cache is snapshot-pinned to one commit; regenerate per push. The hook is
-  fail-open: a cache error logs but never blocks the push.
-- Large, queryable artifacts (embeddings, full symbol DB) belong behind the
-  service, not downloaded to the VM. Small snapshot-pinned artifacts (manifest,
-  dep graph) ride the side ref the VM fetches.
+Latest measured numbers from this installation:
+[**`experiments/RECENT.md`**](experiments/RECENT.md) — a readable digest of the
+most recent experiment runs.
