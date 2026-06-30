@@ -24,6 +24,7 @@ harness = [
 ]
 
 [project.scripts]
+agentcache-generate  = "agentcache.generate:main"
 agentcache-service   = "agentcache.service:main"
 agentcache-hook      = "agentcache.hook:main"
 agentcache-uninstall = "agentcache.uninstall:main"
