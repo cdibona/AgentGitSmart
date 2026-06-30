@@ -350,6 +350,13 @@ def generate_for_commit(
 
 
 def _handle_ref(repo, old_oid, new_oid, refname, cfg) -> Dict[str, Any] | None:
+    # Loop prevention (defense in depth): never (re)generate a cache for our own
+    # cache namespace. Writing refs/agent-cache/* is an in-process ref write that
+    # cannot re-fire post-receive, and the refs/heads/* allowlist below already
+    # excludes it — but make the guarantee explicit and config-correct so a custom
+    # AGENTCACHE_REF_PREFIX can't ever feed the hook its own artifacts.
+    if refname.startswith(cfg.ref_prefix.rstrip("/") + "/"):
+        return None
     if new_oid == ZERO_OID:
         return None  # branch deletion
     if not refname.startswith("refs/heads/"):
@@ -363,6 +370,22 @@ def _handle_ref(repo, old_oid, new_oid, refname, cfg) -> Dict[str, Any] | None:
         )
         summary["bundle"] = out
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Loop-safety guarantee.
+#
+# AgentCache cannot trigger itself in a feedback loop: cache artifacts are
+# stored via repo.references.create() — an in-process libgit2 call that does
+# NOT invoke receive-pack and therefore cannot re-fire post-receive. The hook
+# only processes refs/heads/* (branch tips), so refs/agent-cache/* written by
+# write_cache() are structurally excluded by the allowlist check below.
+# Additionally, _handle_ref() explicitly guards against any ref whose name
+# starts with cfg.ref_prefix, making the guarantee config-correct even when
+# AGENTCACHE_REF_PREFIX is customised. The GitHub Action mirrors this:
+# the artifact push targets refs/agent-cache/<sha> (a non-branch ref) which
+# can never match the ``push: branches: [main]`` workflow trigger.
+# ---------------------------------------------------------------------------
 
 
 def main(argv=None, stdin=None) -> int:
