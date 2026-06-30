@@ -36,36 +36,30 @@ editing 2% of a repo pulls **17×–10,000× less** over the network than a norm
 
 ### If you are human
 
-Tell your favorite coding agent (Claude Code, Codex CLI, Amplifier, Gemini CLI,
-Cursor, …):
+**Is AgentCache right for your repo?** Run this in your repository's root. It
+measures your repo (naive vs blobless vs agentcache) and **— if AgentCache would
+actually help — offers to set it up for you**. If it wouldn't, it says so and
+stops:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash
+```
+
+It's honest: on a small or lean repo it tells you **"blobless is enough"** and
+won't push an install on you. When it *does* offer to install, it only scaffolds
+files into your working tree for you to review and commit — it never pushes
+anything on its own. For exactly what it measures, the lighter static predictor
+(`assess_repo.py`), and the manual invocations, see
+[Testing & results](docs/TESTING.md#try-it-on-your-repo).
+
+Prefer to let your coding agent drive instead? Tell it (Claude Code, Codex CLI,
+Amplifier, Gemini CLI, Cursor, …):
 
 ```
 Read https://raw.githubusercontent.com/cdibona/AgentCache/main/README.md. Follow the instructions there.
 ```
-
-That's the whole job. Your agent does the rest — adopting agentcache on your Git
-server and making the repo agent-aware — by following the section below. *(If the
-repo already has an `AGENTS.md`, just say: "Read AGENTS.md — this repo uses
-agentcache.")*
-
-**Not sure it's worth adopting?** Point the analyzer at a local clone (or a
-GitHub URL) for a quick, honest read on whether agentcache would help *your*
-repo:
-
-```bash
-python scripts/assess_repo.py /path/to/your-repo        # or a https://github.com/... URL
-```
-
-It reports `agentcache worthwhile`, `blobless is enough` (your repo is too small
-or too lean to benefit), or `inconclusive — measure to be sure`. This is a
-**static prediction from repo shape, not a measured result** — it is deliberately
-conservative and **abstains rather than over-promise** (a false "adopt" wastes
-your time).
-
-**Want real measured numbers?** From your repo's root:
-`curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash`
-— see [Testing & results](docs/TESTING.md#try-it-on-your-repo) for what it
-measures.
+*(If the repo already has an `AGENTS.md`, just say: "Read AGENTS.md — this repo
+uses agentcache.")*
 
 ### If you've been sent here by your human
 

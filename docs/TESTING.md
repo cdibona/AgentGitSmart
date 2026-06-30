@@ -44,10 +44,24 @@ python scripts/try_agentcache.py /path/to/your-repo
 python scripts/try_agentcache.py https://github.com/owner/name
 
 # From anywhere, no checkout needed (sets up a throwaway venv):
-curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash
 ```
 
 This measures your repo with a simulated agent editing 2% of files.
+
+**It offers to set itself up — only when warranted.** If (and only if) the
+measured verdict is **`agentcache worthwhile`** and you ran it inside a local
+working clone, the trial then asks whether to scaffold the adoption files for
+you. On yes it *creates* (never overwrites) up to three files in your working
+tree — `.github/workflows/agentcache.yml` (only for GitHub remotes, from the
+[adopter workflow template](adopter-workflow.yml)), `AGENTS.md`
+(from [`ADOPTER_AGENTS_TEMPLATE.md`](ADOPTER_AGENTS_TEMPLATE.md)), and
+`.agentcache` — then tells you to review, commit, and push. **It never runs
+`git add`, `commit`, or `push` for you, and never touches a remote.** For any
+other verdict (or a non-worktree target) it does nothing but report. Flags:
+`--yes` scaffolds without prompting, `--no-install` disables the offer, `--json`
+is non-interactive (the offer is reported, not performed). The prompt reads from
+`/dev/tty`, so it still works through `curl … | bash`.
 
 **Honest cold-cost caveat.** The cold column is not apples-to-apples and the
 trial says so: agentcache cold delivers **full history**, whereas the blobless

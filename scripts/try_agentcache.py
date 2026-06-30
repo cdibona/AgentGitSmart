@@ -23,6 +23,7 @@ TARGET may be a local repo path or any git URL.  If omitted the current
 working directory is used (must be a git repository).
 Exit code: always 0 (advisory).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -271,10 +272,16 @@ def render_try_report(summary: dict, files: int) -> str:
     # COLD section
     lines.append("  COLD pass (one-time cost to seed agentcache artifacts):")
     lines.append(f"    naive:      {_fmt_bytes(naive_cold)}")
-    lines.append(f"    blobless:   {_fmt_bytes(bl_cold)}  ← depth-1 shallow (no history)")
-    lines.append(f"    agentcache: {_fmt_bytes(ac_cold)}  ← full-history blobless clone")
+    lines.append(
+        f"    blobless:   {_fmt_bytes(bl_cold)}  ← depth-1 shallow (no history)"
+    )
+    lines.append(
+        f"    agentcache: {_fmt_bytes(ac_cold)}  ← full-history blobless clone"
+    )
     lines.append("")
-    lines.append("  ⚠ blobless cold ≠ agentcache cold: different products.  blobless cold")
+    lines.append(
+        "  ⚠ blobless cold ≠ agentcache cold: different products.  blobless cold"
+    )
     lines.append("    is depth-1 shallow (no history). agentcache cold delivers full")
     lines.append("    history. In production the bootstrap bundle is built once per")
     lines.append("    commit and CDN-cached — a per-commit cost, not per-agent.")
@@ -490,6 +497,310 @@ async def _run_experiment(
 
 
 # ---------------------------------------------------------------------------
+# Install-offer flow -- pure helpers + shell orchestrator
+# ---------------------------------------------------------------------------
+
+
+def should_offer_install(
+    verdict_label: str,
+    target_is_local_worktree: bool,
+) -> bool:
+    """Return True ONLY when AgentCache is genuinely worthwhile AND the target
+    is a local, non-bare git worktree.
+
+    Honest gating: we do NOT offer for "worth it only at high reuse",
+    "blobless is enough", or "inconclusive" -- and never for URL targets or
+    bare repos where we cannot scaffold files.
+
+    Args:
+        verdict_label:            The suitability label from suitability_verdict().
+        target_is_local_worktree: True when the target is a local path that has a
+                                  working tree (not bare, not a URL).
+
+    Returns:
+        True when the offer should be made, False otherwise.
+
+    Examples:
+        >>> should_offer_install("agentcache worthwhile", True)
+        True
+        >>> should_offer_install("agentcache worthwhile", False)
+        False
+        >>> should_offer_install("blobless is enough", True)
+        False
+    """
+    return verdict_label == "agentcache worthwhile" and target_is_local_worktree
+
+
+def detect_remote_kind(remote_url: Optional[str]) -> str:
+    """Map a git remote URL to a hosting kind string.
+
+    Args:
+        remote_url: The URL from ``git remote get-url origin`` (or None/empty).
+
+    Returns:
+        ``"github"``  -- URL contains ``github.com`` (https or git@ssh).
+        ``"other"``   -- Any other non-empty URL.
+        ``"none"``    -- ``remote_url`` is None or empty.
+
+    Examples:
+        >>> detect_remote_kind("https://github.com/user/repo.git")
+        'github'
+        >>> detect_remote_kind("git@github.com:user/repo.git")
+        'github'
+        >>> detect_remote_kind("https://gitlab.com/user/repo.git")
+        'other'
+        >>> detect_remote_kind(None)
+        'none'
+        >>> detect_remote_kind("")
+        'none'
+    """
+    if not remote_url:
+        return "none"
+    if "github.com" in remote_url:
+        return "github"
+    return "other"
+
+
+def plan_scaffold(
+    tooling_root: str,
+    target_repo: str,
+    remote_kind: str,
+) -> list[dict]:
+    """Return an ordered list of file-plan dicts describing what to scaffold.
+
+    Each item has:
+        dest   (str)  -- Relative path inside ``target_repo``.
+        source (str)  -- Absolute path to the template file in ``tooling_root``.
+        exists (bool) -- Whether ``dest`` already exists in ``target_repo``.
+        action (str)  -- ``"create"`` or ``"skip-exists"`` (never overwrite).
+
+    Items:
+        1. ``.github/workflows/agentcache.yml`` -- ONLY when remote_kind == "github".
+        2. ``AGENTS.md``  -- always.
+        3. ``.agentcache`` -- always.
+
+    Args:
+        tooling_root: Root of the AgentCache tooling tree (has docs/ and
+                      .agentcache.example).
+        target_repo:  Root of the adopter's repo where files will be placed.
+        remote_kind:  String from :func:`detect_remote_kind`.
+
+    Returns:
+        Ordered list of plan-item dicts (see above).
+    """
+    items: list[dict] = []
+
+    def _item(dest: str, src_relpath: str) -> dict:
+        source = os.path.join(tooling_root, src_relpath)
+        full_dest = os.path.join(target_repo, dest)
+        exists = os.path.exists(full_dest)
+        action = "skip-exists" if exists else "create"
+        return {"dest": dest, "source": source, "exists": exists, "action": action}
+
+    if remote_kind == "github":
+        items.append(
+            _item(".github/workflows/agentcache.yml", "docs/adopter-workflow.yml")
+        )
+
+    items.append(_item("AGENTS.md", "docs/ADOPTER_AGENTS_TEMPLATE.md"))
+    items.append(_item(".agentcache", ".agentcache.example"))
+
+    return items
+
+
+def apply_scaffold(plan: list[dict], target_repo: str) -> list[str]:
+    """Execute a scaffold plan, writing ONLY ``action == "create"`` items.
+
+    Parent directories are created automatically (``mkdir -p`` semantics).
+    Existing files are never overwritten.  No git add/commit/push is ever
+    performed.
+
+    Args:
+        plan:        List of plan-item dicts from :func:`plan_scaffold`.
+        target_repo: Root of the adopter's repo.
+
+    Returns:
+        List of relative paths that were actually created (excludes skipped items).
+    """
+    created: list[str] = []
+    for item in plan:
+        if item["action"] != "create":
+            continue
+        dest_path = os.path.join(target_repo, item["dest"])
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        shutil.copy2(item["source"], dest_path)
+        created.append(item["dest"])
+    return created
+
+
+def run_install_offer(
+    *,
+    verdict_label: str,
+    target_is_local_worktree: bool,
+    target_repo: str,
+    tooling_root: str,
+    remote_url: Optional[str],
+    assume_yes: bool,
+    no_install: bool,
+    interactive: bool,
+) -> dict:
+    """Orchestrate the consent-gated scaffold offer.
+
+    Decision tree:
+      1. :func:`should_offer_install` -> False  ->  return {"offered": False}
+      2. ``no_install``                       ->  print hint, return installed=False
+      3. Build plan; prompt (or skip if assume_yes).
+      4. On consent: :func:`apply_scaffold`, print summary.
+      5. Return result dict.
+
+    Prompt reads from ``/dev/tty`` (not stdin) so it works under ``curl | bash``
+    where stdin is the piped script.  If ``/dev/tty`` cannot be opened and
+    ``assume_yes`` is False and ``interactive`` is False, print a nudge and
+    return without writing anything.
+
+    NEVER calls git add/commit/push.
+
+    Args:
+        verdict_label:            Suitability label from :func:`suitability_verdict`.
+        target_is_local_worktree: True when the target is a local non-bare repo.
+        target_repo:              Root of the adopter's repo.
+        tooling_root:             Root of the AgentCache tooling tree.
+        remote_url:               URL from ``git remote get-url origin`` (or None).
+        assume_yes:               Skip the y/N prompt and proceed directly.
+        no_install:               Print hint only; do not scaffold anything.
+        interactive:              True when stdout is a tty (``sys.stdout.isatty()``).
+
+    Returns:
+        Dict with at minimum ``{"offered": bool}``.  When ``installed`` is True
+        the dict also includes ``"created"`` and ``"skipped"`` lists.
+    """
+    if not should_offer_install(verdict_label, target_is_local_worktree):
+        return {"offered": False}
+
+    remote_kind = detect_remote_kind(remote_url)
+
+    if no_install:
+        print(
+            "\nAgentCache looks worthwhile -- re-run without --no-install "
+            "(or see docs/INSTALL.md) to set it up."
+        )
+        return {"offered": True, "installed": False, "reason": "no_install"}
+
+    plan = plan_scaffold(tooling_root, target_repo, remote_kind)
+
+    # --- Gather consent ---
+    if not assume_yes:
+        files_to_create = [i["dest"] for i in plan if i["action"] == "create"]
+        files_to_skip = [i["dest"] for i in plan if i["action"] == "skip-exists"]
+        print("\nAgentCache looks worthwhile for this repo.")
+        print("These files would be created in your repo:")
+        for f in files_to_create:
+            print(f"  + {f}")
+        if files_to_skip:
+            print("These already exist and will be left untouched:")
+            for f in files_to_skip:
+                print(f"  = {f} (already present, skipping)")
+        if remote_kind in ("other", "none"):
+            print(
+                "\nNote: the GitHub Action template won't apply to your hosting "
+                "platform.  AGENTS.md and .agentcache are server-agnostic and will "
+                "still be created.  See docs/INSTALL.md for the self-hosted "
+                "post-receive hook."
+            )
+
+        # Read consent from /dev/tty so this works under `curl | bash`.
+        try:
+            with open("/dev/tty") as tty:
+                print("\nProceed? [y/N] ", end="", flush=True)
+                response = tty.readline().strip().lower()
+        except OSError:
+            # /dev/tty is unavailable (non-interactive shell, pipe, etc.)
+            if not interactive:
+                print(
+                    "\nAgentCache looks worthwhile.  Re-run interactively, "
+                    "or pass --yes, to scaffold the setup files."
+                )
+                return {
+                    "offered": True,
+                    "installed": False,
+                    "reason": "no_tty",
+                }
+            # Fallback: try stdin (user IS interactive)
+            print("\nProceed? [y/N] ", end="", flush=True)
+            response = sys.stdin.readline().strip().lower()
+
+        if response not in ("y", "yes"):
+            print("Skipping scaffold.")
+            return {"offered": True, "installed": False, "reason": "declined"}
+
+    # --- Apply scaffold ---
+    created = apply_scaffold(plan, target_repo)
+    skipped = [i["dest"] for i in plan if i["action"] == "skip-exists"]
+
+    if created:
+        print("\nCreated:")
+        for f in created:
+            print(f"  + {f}")
+    if skipped:
+        print("Already present (not overwritten):")
+        for f in skipped:
+            print(f"  = {f}")
+
+    if remote_kind in ("other", "none"):
+        print(
+            "\nNote: your remote is not GitHub, so the GitHub Action template "
+            "was not included.  AGENTS.md and .agentcache are server-agnostic.  "
+            "See docs/INSTALL.md for the self-hosted post-receive hook."
+        )
+
+    print(
+        "\nReview these files, then commit and push to activate.  "
+        "The GitHub Action rebuilds the cache on every push to main.  "
+        "Full guide: docs/INSTALL.md."
+    )
+    return {
+        "offered": True,
+        "installed": True,
+        "created": created,
+        "skipped": skipped,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers for install-offer wiring
+# ---------------------------------------------------------------------------
+
+
+def _compute_target_is_local_worktree(target: str) -> bool:
+    """Return True if *target* is a local, non-bare git worktree.
+
+    Runs ``git -C <target> rev-parse --is-bare-repository`` (fast, read-only).
+    Returns False for URL targets or bare repos.
+    """
+    if not _is_local_target(target):
+        return False
+    result = subprocess.run(
+        ["git", "-C", target, "rev-parse", "--is-bare-repository"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "false"
+
+
+def _read_origin_remote_url(target: str) -> Optional[str]:
+    """Return ``origin`` remote URL for a local repo, or None on failure."""
+    result = subprocess.run(
+        ["git", "-C", target, "remote", "get-url", "origin"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        url = result.stdout.strip()
+        return url if url else None
+    return None
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -533,6 +844,22 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Print harness log lines as the experiment runs",
     )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        dest="yes",
+        help=(
+            "Automatically accept the offer to scaffold AgentCache files "
+            "(skip the y/N prompt)"
+        ),
+    )
+    parser.add_argument(
+        "--no-install",
+        action="store_true",
+        dest="no_install",
+        help="Print a hint about setup but do not scaffold any files",
+    )
     args = parser.parse_args(argv)
 
     # Resolve TARGET: None / "." → cwd; explicit path/URL → use as-is.
@@ -544,6 +871,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         if err:
             print(f"Error: {err}", file=sys.stderr)
             return 1
+
+    # Collect local-repo metadata for the install-offer (fast git commands).
+    target_is_local_worktree = _compute_target_is_local_worktree(target)
+    remote_url: Optional[str] = (
+        _read_origin_remote_url(target) if target_is_local_worktree else None
+    )
+    tooling_root = str(_ROOT)
 
     tmp_dir: Optional[str] = None
 
@@ -593,13 +927,33 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         files: int = summary.pop("_files", 0)
 
+        # Compute the verdict label once for output + install-offer.
+        json_data = try_result_json(summary, files)
+        verdict_label: str = json_data.get("verdict", "")
+
         # --- Output ---
         if args.json:
-            print(json.dumps(try_result_json(summary, files), indent=2))
+            # Machine mode: add install_offered bool; never prompt or scaffold.
+            json_data["install_offered"] = should_offer_install(
+                verdict_label, target_is_local_worktree
+            )
+            print(json.dumps(json_data, indent=2))
         else:
             print()
             print(render_try_report(summary, files))
             print(f"\n  (Measurement took {elapsed:.1f}s)")
+
+            # After printing the verdict, offer to scaffold if warranted.
+            run_install_offer(
+                verdict_label=verdict_label,
+                target_is_local_worktree=target_is_local_worktree,
+                target_repo=target,
+                tooling_root=tooling_root,
+                remote_url=remote_url,
+                assume_yes=args.yes,
+                no_install=args.no_install,
+                interactive=sys.stdout.isatty(),
+            )
 
         return 0
 
