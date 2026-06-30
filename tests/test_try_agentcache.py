@@ -34,7 +34,11 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-from scripts.try_agentcache import render_try_report, try_result_json  # noqa: E402
+from scripts.try_agentcache import (  # noqa: E402
+    render_try_report,
+    resolve_target,
+    try_result_json,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +386,147 @@ class TestTryResultJson:
 
 
 # ---------------------------------------------------------------------------
+# Tests for resolve_target() — pure unit tests, no I/O
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTarget:
+    """resolve_target(arg, cwd) -> str is a pure helper; no I/O required."""
+
+    def test_none_returns_cwd(self):
+        """None (omitted arg) → cwd."""
+        assert resolve_target(None, "/home/user/myrepo") == "/home/user/myrepo"
+
+    def test_dot_returns_cwd(self):
+        """Explicit '.' → cwd (same as default)."""
+        assert resolve_target(".", "/home/user/myrepo") == "/home/user/myrepo"
+
+    def test_explicit_path_passthrough(self):
+        """Any explicit path is returned unchanged."""
+        assert resolve_target("/explicit/path", "/irrelevant/cwd") == "/explicit/path"
+
+    def test_relative_path_passthrough(self):
+        """A relative path that is not '.' is returned unchanged."""
+        assert resolve_target("../sibling-repo", "/some/cwd") == "../sibling-repo"
+
+    def test_https_url_passthrough(self):
+        url = "https://github.com/user/repo.git"
+        assert resolve_target(url, "/irrelevant") == url
+
+    def test_git_at_url_passthrough(self):
+        url = "git@github.com:user/repo.git"
+        assert resolve_target(url, "/irrelevant") == url
+
+    def test_git_protocol_url_passthrough(self):
+        url = "git://github.com/user/repo.git"
+        assert resolve_target(url, "/irrelevant") == url
+
+    def test_file_url_passthrough(self):
+        url = "file:///tmp/some-repo"
+        assert resolve_target(url, "/irrelevant") == url
+
+    def test_cwd_varies_with_different_input(self):
+        """The cwd parameter controls what None/'.' resolves to."""
+        assert resolve_target(None, "/repo-a") == "/repo-a"
+        assert resolve_target(None, "/repo-b") == "/repo-b"
+        assert resolve_target(".", "/repo-a") != resolve_target(".", "/repo-b")
+
+
+# ---------------------------------------------------------------------------
+# Tests for CLI git-repo validation (fast — exits before running experiment)
+# ---------------------------------------------------------------------------
+
+
+class TestCLIValidation:
+    """Validate that the git-repo check catches bad targets quickly."""
+
+    def test_non_git_dir_defaults_exits_nonzero(self, tmp_path):
+        """Running from a non-git directory with no TARGET must exit non-zero."""
+        non_git = tmp_path / "not_a_repo"
+        non_git.mkdir()
+        proc = subprocess.run(
+            [sys.executable, str(_ROOT / "scripts" / "try_agentcache.py")],
+            capture_output=True,
+            text=True,
+            cwd=str(non_git),
+        )
+        assert proc.returncode != 0, (
+            f"Expected non-zero exit; got {proc.returncode}\n"
+            f"stderr: {proc.stderr!r}"
+        )
+
+    def test_non_git_dir_defaults_error_mentions_git(self, tmp_path):
+        """Error message for non-git cwd must mention 'git' or 'repo'."""
+        non_git = tmp_path / "not_a_repo"
+        non_git.mkdir()
+        proc = subprocess.run(
+            [sys.executable, str(_ROOT / "scripts" / "try_agentcache.py")],
+            capture_output=True,
+            text=True,
+            cwd=str(non_git),
+        )
+        combined = proc.stderr + proc.stdout
+        lower = combined.lower()
+        assert "git" in lower or "repo" in lower, (
+            f"Expected git/repo mention in error output; got: {combined!r}"
+        )
+
+    def test_non_git_dir_defaults_error_mentions_repo_root(self, tmp_path):
+        """Error message must suggest running from the repository root."""
+        non_git = tmp_path / "not_a_repo"
+        non_git.mkdir()
+        proc = subprocess.run(
+            [sys.executable, str(_ROOT / "scripts" / "try_agentcache.py")],
+            capture_output=True,
+            text=True,
+            cwd=str(non_git),
+        )
+        combined = proc.stderr + proc.stdout
+        assert "root" in combined.lower() or "repository" in combined.lower(), (
+            f"Expected 'root'/'repository' in error; got: {combined!r}"
+        )
+
+    def test_explicit_non_git_dir_exits_nonzero(self, tmp_path):
+        """Passing an explicit local non-git path must also exit non-zero."""
+        non_git = tmp_path / "not_a_repo"
+        non_git.mkdir()
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(_ROOT / "scripts" / "try_agentcache.py"),
+                str(non_git),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(_ROOT),
+        )
+        assert proc.returncode != 0
+
+    def test_url_target_skips_local_validation(self):
+        """A URL target must not trigger the local git-repo check.
+
+        We expect it to proceed past validation and fail later (mirror / network)
+        rather than immediately with the git-repo error message.
+        """
+        # Use a clearly invalid URL that will fail fast but NOT with the
+        # git-repo error message.
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(_ROOT / "scripts" / "try_agentcache.py"),
+                "https://invalid.test/nonexistent/repo.git",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(_ROOT),
+            timeout=30,
+        )
+        combined = proc.stderr + proc.stdout
+        # Must NOT say "not a git repo" — the URL was accepted past validation.
+        assert "not a git repo" not in combined.lower()
+
+
+# ---------------------------------------------------------------------------
 # CLI --help smoke tests (fast, no I/O)
 # ---------------------------------------------------------------------------
 
@@ -431,6 +576,32 @@ class TestCLIHelp:
         )
         # Must document the "always 0" advisory exit code
         assert "0" in proc.stdout
+
+    def test_help_mentions_repo_root(self):
+        """Help must tell the user to run from their repo root."""
+        proc = subprocess.run(
+            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=str(_ROOT),
+        )
+        lower = proc.stdout.lower()
+        assert "repo" in lower or "root" in lower, (
+            f"Expected 'repo' or 'root' in help output; got: {proc.stdout[:400]}"
+        )
+
+    def test_help_target_is_optional(self):
+        """With nargs='?', argparse usage line shows [TARGET] (optional)."""
+        proc = subprocess.run(
+            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            capture_output=True,
+            text=True,
+            cwd=str(_ROOT),
+        )
+        # argparse renders optional positional as [TARGET] in usage
+        assert "[TARGET]" in proc.stdout, (
+            f"Expected '[TARGET]' in help usage; got: {proc.stdout[:400]}"
+        )
 
 
 # ---------------------------------------------------------------------------

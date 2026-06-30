@@ -12,9 +12,15 @@ saving vs blobless, break-even passes, and a suitability verdict — all
 backed by real measured numbers (not static prediction).
 
 Usage:
-    python scripts/try_agentcache.py <path-or-url> [--json] [--verbose]
+    # Run from your repo root — TARGET defaults to the current directory:
+    python scripts/try_agentcache.py [TARGET] [--json] [--verbose]
 
-TARGET may be a local repo path or any git URL.
+    # Explicit path or URL:
+    python scripts/try_agentcache.py /path/to/repo
+    python scripts/try_agentcache.py https://github.com/user/repo.git
+
+TARGET may be a local repo path or any git URL.  If omitted the current
+working directory is used (must be a git repository).
 Exit code: always 0 (advisory).
 """
 from __future__ import annotations
@@ -48,6 +54,75 @@ from scripts.render_experiment_report import (  # noqa: E402
 from testharness.experiment_runner import ExperimentRunner  # noqa: E402
 from testharness.processes import AgentCacheService, GitDaemon  # noqa: E402
 from testharness.proxy import ByteCountingProxy  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Target resolution and validation (pure / near-pure helpers)
+# ---------------------------------------------------------------------------
+
+_URL_PREFIXES = (
+    "https://",
+    "http://",
+    "git@",
+    "git://",
+    "ssh://",
+    "file://",
+)
+
+
+def resolve_target(arg: Optional[str], cwd: str) -> str:
+    """Resolve the raw TARGET argument to a concrete path or URL.
+
+    This is a pure function: no I/O, no side effects.
+
+    Rules:
+      - ``arg`` is ``None`` or ``"."``  →  return ``cwd``
+      - ``arg`` is any other string     →  return ``arg`` unchanged
+
+    Args:
+        arg: The raw value parsed from the command-line positional, or
+             ``None`` when the argument was omitted.
+        cwd: The current working directory (``os.getcwd()``).
+
+    Returns:
+        The resolved target string (a filesystem path or git URL).
+
+    Examples:
+        >>> resolve_target(None, "/home/user/myrepo")
+        '/home/user/myrepo'
+        >>> resolve_target(".", "/home/user/myrepo")
+        '/home/user/myrepo'
+        >>> resolve_target("/explicit/path", "/irrelevant")
+        '/explicit/path'
+        >>> resolve_target("https://github.com/u/r.git", "/irrelevant")
+        'https://github.com/u/r.git'
+    """
+    if arg is None or arg == ".":
+        return cwd
+    return arg
+
+
+def _is_local_target(target: str) -> bool:
+    """Return True if *target* looks like a local filesystem path (not a URL)."""
+    return not any(target.startswith(p) for p in _URL_PREFIXES)
+
+
+def _validate_local_git_repo(target: str) -> Optional[str]:
+    """Return an error message if *target* is not a git repo, else ``None``.
+
+    Runs ``git -C <target> rev-parse --git-dir`` (fast, no I/O beyond that).
+    """
+    result = subprocess.run(
+        ["git", "-C", target, "rev-parse", "--git-dir"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return (
+            f"not a git repo: {target!r} — "
+            "run this from your repository's root, or pass a repo path/URL"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -420,10 +495,11 @@ async def _run_experiment(
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """CLI entry point.  Returns exit code (always 0 — advisory tool)."""
+    """CLI entry point.  Returns exit code (0 advisory; 1 on bad input)."""
     parser = argparse.ArgumentParser(
         prog="try_agentcache",
         description=(
+            "Run this in the root of your repo (or pass a path / GitHub URL).\n\n"
             "Measure whether AgentCache would help YOUR repo, and by how much.\n\n"
             "Runs a real measurement through the testharness byte-counting proxy:\n"
             "  - COLD pass: builds / seeds agentcache artifacts\n"
@@ -433,13 +509,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "TARGET may be a local repo path or any git URL.\n"
+            "If omitted, the current working directory is used (must be a git repo).\n"
             "Exit code is always 0 (advisory — never blocks anything).\n"
         ),
     )
     parser.add_argument(
         "target",
         metavar="TARGET",
-        help="Local repo path or git URL (https://, git@…, file://…)",
+        nargs="?",
+        default=None,
+        help=(
+            "Local repo path or git URL (https://, git@…, file://…). "
+            "Defaults to the current directory — run this from your repo root."
+        ),
     )
     parser.add_argument(
         "--json",
@@ -453,7 +535,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    target = args.target
+    # Resolve TARGET: None / "." → cwd; explicit path/URL → use as-is.
+    target = resolve_target(args.target, os.getcwd())
+
+    # Validate local targets before starting any daemons.
+    if _is_local_target(target):
+        err = _validate_local_git_repo(target)
+        if err:
+            print(f"Error: {err}", file=sys.stderr)
+            return 1
+
     tmp_dir: Optional[str] = None
 
     try:
