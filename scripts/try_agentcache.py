@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""try_agentcache.py — "Would AgentCache help MY repo, and by how much?"
+
+A one-shot MEASURED companion to scripts/assess_repo.py.
+Where assess_repo predicts from repo shape, this tool MEASURES real network
+bytes by running your repo through the testharness byte-counting proxy:
+  - Pass 1 (COLD):  builds / seeds the agentcache artifacts.
+  - Pass 2 (WARM):  steady-state per-agent cost.
+
+Reports cold bytes for all three approaches, warm bytes, the agentcache
+saving vs blobless, break-even passes, and a suitability verdict — all
+backed by real measured numbers (not static prediction).
+
+Usage:
+    python scripts/try_agentcache.py <path-or-url> [--json] [--verbose]
+
+TARGET may be a local repo path or any git URL.
+Exit code: always 0 (advisory).
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import math
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+from typing import Optional
+
+# Ensure the repo root is importable whether we are run as a script or as a
+# module (e.g. from tests/).
+_HERE = Path(__file__).resolve().parent
+_ROOT = _HERE.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts.render_experiment_report import (  # noqa: E402
+    _fmt_bytes,
+    suitability_verdict,
+)
+from testharness.experiment_runner import ExperimentRunner  # noqa: E402
+from testharness.processes import AgentCacheService, GitDaemon  # noqa: E402
+from testharness.proxy import ByteCountingProxy  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Small utilities
+# ---------------------------------------------------------------------------
+
+
+def _free_port() -> int:
+    """Ask the OS for a free ephemeral port by binding to port 0."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _repo_name_from_target(target: str) -> str:
+    """Extract a short repo name from a local path or git URL."""
+    t = target.rstrip("/")
+    name = Path(t).name
+    # Strip .git suffix
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or "repo"
+
+
+def _mirror_repo(target: str, repos_dir: str) -> tuple[str, str]:
+    """Mirror *target* into *repos_dir*/<name>.git as a bare repo.
+
+    Returns (name, bare_path).
+    Raises RuntimeError if the clone fails.
+    """
+    name = _repo_name_from_target(target)
+    bare_path = os.path.join(repos_dir, f"{name}.git")
+
+    result = subprocess.run(
+        ["git", "clone", "--mirror", target, bare_path],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git clone --mirror failed:\n{result.stderr.strip() or result.stdout.strip()}"
+        )
+
+    # Enable blobless + agentcache filter support (required for the blobless
+    # and agentcache approaches; see tests/test_bundle_and_coldstart.py).
+    for key, val in [
+        ("uploadpack.allowFilter", "true"),
+        ("uploadpack.allowAnySHA1InWant", "true"),
+    ]:
+        subprocess.run(
+            ["git", "--git-dir", bare_path, "config", key, val],
+            capture_output=True,
+        )
+
+    return name, bare_path
+
+
+# ---------------------------------------------------------------------------
+# Pure report-rendering functions — unit-testable with no I/O
+# ---------------------------------------------------------------------------
+
+
+def render_try_report(summary: dict, files: int) -> str:
+    """Render a human-readable try-agentcache measurement report.
+
+    This is a pure function: no I/O, no side effects.
+
+    Args:
+        summary: Per-method measurement dict as produced by
+                 ``ExperimentRunner._summarize_campaign()``.  Expected keys:
+                 ``"naive"``, ``"blobless"``, ``"agentcache"``, each with at
+                 least ``cold_bytes`` and ``warm_avg_bytes``; and
+                 ``"_win_vs_naive"``.  An ``"error"`` key at the top level
+                 means the campaign failed.
+        files:   File count in the repo HEAD tree (for verdict + header).
+
+    Returns:
+        Multi-line human-readable string (no trailing newline).
+    """
+    error = summary.get("error")
+    if error:
+        lines = [
+            "=" * 64,
+            "  AgentCache trial measurement",
+            "=" * 64,
+            f"  ERROR: {error}",
+            "=" * 64,
+        ]
+        return "\n".join(lines)
+
+    naive = summary.get("naive") or {}
+    blobless = summary.get("blobless") or {}
+    agentcache = summary.get("agentcache") or {}
+
+    naive_cold: Optional[int] = naive.get("cold_bytes")
+    naive_warm: Optional[int] = naive.get("warm_avg_bytes")
+    bl_cold: Optional[int] = blobless.get("cold_bytes")
+    bl_warm: Optional[int] = blobless.get("warm_avg_bytes")
+    ac_cold: Optional[int] = agentcache.get("cold_bytes")
+    ac_warm: Optional[int] = agentcache.get("warm_avg_bytes")
+
+    # Warm saving vs blobless (the honest competitor, not naive)
+    warm_saved: Optional[float] = None
+    warm_saving_ratio: Optional[float] = None
+    if bl_warm is not None and ac_warm is not None:
+        warm_saved = bl_warm - ac_warm
+        if bl_warm > 0:
+            warm_saving_ratio = warm_saved / bl_warm
+
+    # Cold overhead and break-even
+    cold_overhead: Optional[float] = None
+    break_even: Optional[int] = None
+    if bl_cold is not None and ac_cold is not None:
+        cold_overhead = ac_cold - bl_cold
+        if warm_saved is not None and warm_saved > 0:
+            if cold_overhead is None or cold_overhead <= 0:
+                break_even = 0
+            else:
+                break_even = math.ceil(cold_overhead / warm_saved)
+
+    # Suitability verdict
+    label, reason = suitability_verdict(
+        files=files,
+        warm_saving_ratio=warm_saving_ratio,
+        break_even_passes=break_even,
+    )
+
+    # Saving % display
+    if warm_saving_ratio is not None and warm_saving_ratio > 0:
+        saving_str = f"{warm_saving_ratio * 100:.1f}% vs blobless"
+    elif warm_saving_ratio is not None:
+        saving_str = "0% — agentcache is NOT cheaper than blobless here"
+    else:
+        saving_str = "— (data unavailable)"
+
+    lines: list[str] = []
+    lines.append("=" * 64)
+    lines.append(f"  AgentCache trial: {files:,} files in repo")
+    lines.append("  REAL measured network bytes via byte-counting proxy.")
+    lines.append("  Pass 1 = COLD (builds artifacts)  |  Pass 2 = WARM (steady state)")
+    lines.append("  Simulated agent edits 2% of source files per pass.")
+    lines.append("=" * 64)
+    lines.append("")
+
+    # COLD section
+    lines.append("  COLD pass (one-time cost to seed agentcache artifacts):")
+    lines.append(f"    naive:      {_fmt_bytes(naive_cold)}")
+    lines.append(f"    blobless:   {_fmt_bytes(bl_cold)}  ← depth-1 shallow (no history)")
+    lines.append(f"    agentcache: {_fmt_bytes(ac_cold)}  ← full-history blobless clone")
+    lines.append("")
+    lines.append("  ⚠ blobless cold ≠ agentcache cold: different products.  blobless cold")
+    lines.append("    is depth-1 shallow (no history). agentcache cold delivers full")
+    lines.append("    history. In production the bootstrap bundle is built once per")
+    lines.append("    commit and CDN-cached — a per-commit cost, not per-agent.")
+    lines.append("")
+
+    # WARM section
+    lines.append("  WARM per-agent-pass (steady-state after artifacts are seeded):")
+    lines.append(f"    naive:      {_fmt_bytes(naive_warm)}")
+    lines.append(f"    blobless:   {_fmt_bytes(bl_warm)}")
+    lines.append(f"    agentcache: {_fmt_bytes(ac_warm)}")
+    lines.append(f"    saving:     {saving_str}")
+    if break_even is not None:
+        if break_even == 0:
+            lines.append("    break-even: immediate (agentcache cold ≤ blobless cold)")
+        else:
+            lines.append(
+                f"    break-even: ~{break_even} warm agent pass(es) vs blobless"
+            )
+    else:
+        lines.append("    break-even: — (no warm byte win over blobless)")
+    lines.append("")
+
+    # Verdict
+    bar = "  " + "─" * 60
+    lines.append(bar)
+    lines.append(f"  Verdict:  {label}")
+    lines.append(f"  Reason:   {reason}")
+    lines.append(bar)
+    lines.append("")
+    lines.append(
+        "  This measured your repo with a simulated agent editing 2% of files."
+    )
+    lines.append(
+        "  For deeper analysis (more passes, human commits, latency, multi-repo)"
+    )
+    lines.append("  run the full harness: bash testharness/start.sh")
+
+    return "\n".join(lines)
+
+
+def try_result_json(summary: dict, files: int) -> dict:
+    """Return a machine-readable JSON-serializable dict for try_agentcache.
+
+    This is a pure function: no I/O, no side effects.
+
+    Args:
+        summary: Per-method measurement dict (same shape as for
+                 ``render_try_report``).
+        files:   File count in the repo HEAD tree.
+
+    Returns:
+        JSON-serializable dict with keys:
+        ``files``, ``measured``, ``cold_bytes``, ``warm_bytes``,
+        ``saving_pct_vs_blobless``, ``break_even_passes``,
+        ``verdict``, ``reason``.
+        On error: ``error`` key instead of byte data.
+    """
+    error = summary.get("error")
+    if error:
+        return {"files": files, "measured": True, "error": error}
+
+    naive = summary.get("naive") or {}
+    blobless = summary.get("blobless") or {}
+    agentcache = summary.get("agentcache") or {}
+
+    naive_cold: Optional[int] = naive.get("cold_bytes")
+    naive_warm: Optional[int] = naive.get("warm_avg_bytes")
+    bl_cold: Optional[int] = blobless.get("cold_bytes")
+    bl_warm: Optional[int] = blobless.get("warm_avg_bytes")
+    ac_cold: Optional[int] = agentcache.get("cold_bytes")
+    ac_warm: Optional[int] = agentcache.get("warm_avg_bytes")
+
+    warm_saved: Optional[float] = None
+    warm_saving_ratio: Optional[float] = None
+    if bl_warm is not None and ac_warm is not None:
+        warm_saved = bl_warm - ac_warm
+        if bl_warm > 0:
+            warm_saving_ratio = warm_saved / bl_warm
+
+    cold_overhead: Optional[float] = None
+    break_even: Optional[int] = None
+    if bl_cold is not None and ac_cold is not None:
+        cold_overhead = ac_cold - bl_cold
+        if warm_saved is not None and warm_saved > 0:
+            if cold_overhead is None or cold_overhead <= 0:
+                break_even = 0
+            else:
+                break_even = math.ceil(cold_overhead / warm_saved)
+
+    label, reason = suitability_verdict(
+        files=files,
+        warm_saving_ratio=warm_saving_ratio,
+        break_even_passes=break_even,
+    )
+
+    return {
+        "files": files,
+        "measured": True,
+        "cold_bytes": {
+            "naive": naive_cold,
+            "blobless": bl_cold,
+            "agentcache": ac_cold,
+        },
+        "warm_bytes": {
+            "naive": naive_warm,
+            "blobless": bl_warm,
+            "agentcache": ac_warm,
+        },
+        "saving_pct_vs_blobless": (
+            round(warm_saving_ratio * 100, 1) if warm_saving_ratio is not None else None
+        ),
+        "break_even_passes": break_even,
+        "verdict": label,
+        "reason": reason,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Async harness runner — starts daemon / proxy / service, runs experiment
+# ---------------------------------------------------------------------------
+
+
+async def _run_experiment(
+    repos_dir: str,
+    repo_name: str,
+    git_port: int,
+    proxy_port: int,
+    svc_port: int,
+    verbose: bool,
+) -> dict:
+    """Start daemon / proxy / service and run a two-pass experiment.
+
+    Returns the first campaign's summary dict (with ``"error"`` key on failure).
+    Always tears down the three processes in a ``finally`` block.
+    """
+    repo_dir = os.path.join(repos_dir, f"{repo_name}.git")
+
+    # --- git daemon (serves the bare repo over git:// protocol) ---
+    daemon = GitDaemon(repos_dir=repos_dir, port=git_port)
+    daemon_ok = await daemon.start()
+    if not daemon_ok:
+        return {"error": f"git daemon failed to start on port {git_port}"}
+
+    # --- byte-counting proxy (proxy_port → git_port, counts every byte) ---
+    proxy = ByteCountingProxy("127.0.0.1", proxy_port, "127.0.0.1", git_port)
+    await proxy.start()
+
+    # --- agentcache service ---
+    svc = AgentCacheService(port=svc_port)
+    svc_ok = await svc.start(repo_dir)
+    if not svc_ok and verbose:
+        print(
+            f"  [warn] agentcache service did not start on port {svc_port}; "
+            "agentcache method will fall back to blobless"
+        )
+
+    try:
+        runner = ExperimentRunner(
+            proxy=proxy,
+            agentcache_svc=svc,
+            repos_dir=repos_dir,
+            proxy_port=proxy_port,
+            svc_port=svc_port,
+        )
+
+        exp_id = f"try-{uuid.uuid4().hex[:8]}"
+        config = {
+            # One repo — the one we mirrored.
+            "repos": [f"{repo_name}.git"],
+            # All three approaches to compare.
+            "methods": ["naive", "blobless", "agentcache"],
+            # passes=2: pass 1 is COLD (builds artifacts), pass 2 is WARM
+            # (steady-state — the number the user actually cares about).
+            "passes": 2,
+            # Edit 2% of source files per pass — a representative light-touch
+            # agent workload that runs fast on any repo size.
+            "pct": 2.0,
+            "seed": 1000,
+            # No human commits in this quick trial.
+            "human_commits": 0,
+            # Build the cache right after cold pass so the warm pass has it.
+            "hook_warms": True,
+            # Host execution (no Docker needed).
+            "use_docker": False,
+        }
+
+        log_lines: list[str] = []
+
+        def emit(line: str) -> None:
+            log_lines.append(line)
+            if verbose:
+                print(f"  {line}")
+
+        result = await runner.run(exp_id, config, emit)
+        campaigns = result.get("campaigns", [])
+        if not campaigns:
+            return {"error": "experiment produced no campaigns"}
+
+        camp = campaigns[0]
+        # Return the summary (with an error key if the campaign failed)
+        if camp.get("error"):
+            return {"error": camp["error"], "files": camp.get("files", 0)}
+
+        summary = camp.get("summary", {})
+        # Merge file count into summary so callers have it in one dict
+        summary["_files"] = camp.get("files", 0)
+        return summary
+
+    finally:
+        await svc.stop()
+        await proxy.stop()
+        await daemon.stop()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """CLI entry point.  Returns exit code (always 0 — advisory tool)."""
+    parser = argparse.ArgumentParser(
+        prog="try_agentcache",
+        description=(
+            "Measure whether AgentCache would help YOUR repo, and by how much.\n\n"
+            "Runs a real measurement through the testharness byte-counting proxy:\n"
+            "  - COLD pass: builds / seeds agentcache artifacts\n"
+            "  - WARM pass: steady-state per-agent network bytes\n\n"
+            "Reports the saving vs blobless, break-even passes, and a verdict."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "TARGET may be a local repo path or any git URL.\n"
+            "Exit code is always 0 (advisory — never blocks anything).\n"
+        ),
+    )
+    parser.add_argument(
+        "target",
+        metavar="TARGET",
+        help="Local repo path or git URL (https://, git@…, file://…)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of human text",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print harness log lines as the experiment runs",
+    )
+    args = parser.parse_args(argv)
+
+    target = args.target
+    tmp_dir: Optional[str] = None
+
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="try_agentcache_")
+        repos_dir = os.path.join(tmp_dir, "repos")
+        os.makedirs(repos_dir)
+
+        # --- Mirror the target repo ---
+        if not args.json:
+            print(f"\nMirroring {target!r} …", flush=True)
+        try:
+            name, _bare_path = _mirror_repo(target, repos_dir)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+        if not args.json:
+            print(
+                "Starting git daemon · byte-counting proxy · agentcache service …",
+                flush=True,
+            )
+
+        # --- Pick free ephemeral ports to avoid colliding with any running harness ---
+        git_port = _free_port()
+        proxy_port = _free_port()
+        svc_port = _free_port()
+
+        if args.verbose:
+            print(
+                f"  Ephemeral ports: git={git_port}  proxy={proxy_port}  svc={svc_port}"
+            )
+
+        # --- Run the experiment ---
+        t0 = time.monotonic()
+        summary = asyncio.run(
+            _run_experiment(
+                repos_dir=repos_dir,
+                repo_name=name,
+                git_port=git_port,
+                proxy_port=proxy_port,
+                svc_port=svc_port,
+                verbose=args.verbose,
+            )
+        )
+        elapsed = time.monotonic() - t0
+
+        files: int = summary.pop("_files", 0)
+
+        # --- Output ---
+        if args.json:
+            print(json.dumps(try_result_json(summary, files), indent=2))
+        else:
+            print()
+            print(render_try_report(summary, files))
+            print(f"\n  (Measurement took {elapsed:.1f}s)")
+
+        return 0
+
+    finally:
+        if tmp_dir and os.path.isdir(tmp_dir):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

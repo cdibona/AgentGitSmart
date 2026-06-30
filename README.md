@@ -1,5 +1,12 @@
 # agentcache
 
+> **⚠️ Proof of concept.** AgentCache is an experimental prototype for exploring
+> and measuring server-side per-commit agent caching — not production-hardened
+> software. The included test harness is a *diagnostic* for finding where the
+> approach helps and where it doesn't (on many repos the honest answer is
+> "blobless is enough"). Treat results as evidence to reason about, not a
+> promise. Expect rough edges.
+
 **Let AI coding agents work on a huge repo while downloading less than 1% of it.**
 
 agentcache is server-side Git infrastructure. On every push, a `post-receive`
@@ -53,8 +60,23 @@ It reports `agentcache worthwhile`, `blobless is enough` (your repo is too small
 or too lean to benefit), or `inconclusive — measure to be sure`. This is a
 **static prediction from repo shape, not a measured result** — it is deliberately
 conservative and **abstains rather than over-promise** (a false "adopt" wastes
-your time). Anything short of `worthwhile` means: don't adopt on faith — run the
-[test harness](#try-it--the-test-harness) to *measure* it on your repo first.
+your time).
+
+**Want the real numbers?** Run a one-shot *measured* trial on your repo — it
+mirrors the repo, stands up a byte-counting proxy, and reports the actual
+network bytes for naive vs blobless vs agentcache (one cold pass to seed the
+artifacts, then the warm steady state) plus the same honest verdict:
+
+```bash
+python scripts/try_agentcache.py /path/to/your-repo     # or a https://github.com/... URL
+# from anywhere (sets up a throwaway venv):
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash -s -- <repo-or-url>
+```
+
+This measures your repo with a simulated agent editing 2% of files. The cold
+column is honest about its caveat (agentcache cold delivers *full history*; the
+blobless column is a `--depth=1` shallow clone — different products), so you can
+judge the steady-state warm saving on its own terms.
 
 ### If you've been sent here by your human
 
