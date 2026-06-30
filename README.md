@@ -45,6 +45,21 @@ stops:
 curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash
 ```
 
+> **⚠️ While this repo is private, the `curl` above returns 404** —
+> `raw.githubusercontent.com` won't serve a private repo without a token. Until
+> it goes public, clone AgentCache once and run the same script directly against
+> your repo (this does exactly what the one-liner would):
+>
+> ```bash
+> # one-time: get the tooling (use SSH or a token since the repo is private)
+> git clone https://github.com/cdibona/AgentCache ~/AgentCache
+> # then, from YOUR repo's root, simulate the curl one-liner:
+> bash ~/AgentCache/scripts/try.sh "$PWD"
+> ```
+>
+> (`try.sh` self-bootstraps a throwaway venv and measures the repo you point it
+> at — here, your current directory.)
+
 It's honest: on a small or lean repo it tells you **"blobless is enough"** and
 won't push an install on you. When it *does* offer to install, it only scaffolds
 files into your working tree for you to review and commit — it never pushes
