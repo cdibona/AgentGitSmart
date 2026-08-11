@@ -2,12 +2,12 @@
 # ---------------------------------------------------------------------------
 # testharness/start.sh
 #
-# One-command startup for the AgentCache Test Harness.
+# One-command startup for the AgentGitSmart Test Harness.
 #
 # Starts:
 #   - git daemon          port 9418  (serves benchmark/repos/)
 #   - counting proxy      port 9419  (forwards to 9418, counts bytes)
-#   - agentcache service  port 8765  (started per-repo on demand)
+#   - agentgitsmart service  port 8765  (started per-repo on demand)
 #   - FastAPI web UI      port 8080  (http://localhost:8080)
 #
 # All traffic flows: test client → proxy:9419 → git daemon:9418
@@ -34,8 +34,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Bind host — override via AGENTCACHE_WEB_HOST for tailnet / non-loopback use.
-WEB_HOST="${AGENTCACHE_WEB_HOST:-127.0.0.1}"
+# Bind host — override via AGENTGITSMART_WEB_HOST for tailnet / non-loopback use.
+WEB_HOST="${AGENTGITSMART_WEB_HOST:-127.0.0.1}"
 
 # ---------------------------------------------------------------------------
 # Ensure venv exists and has the required packages.
@@ -72,17 +72,17 @@ mkdir -p testharness/data
 # ---------------------------------------------------------------------------
 # Start the web server.
 # ---------------------------------------------------------------------------
-export AGENTCACHE_WEB_PORT="$WEB_PORT"
-export AGENTCACHE_WEB_HOST="$WEB_HOST"
+export AGENTGITSMART_WEB_PORT="$WEB_PORT"
+export AGENTGITSMART_WEB_HOST="$WEB_HOST"
 
 echo ""
 echo "════════════════════════════════════════════════════"
-echo "  AgentCache Test Harness"
+echo "  AgentGitSmart Test Harness"
 echo "  http://${WEB_HOST}:${WEB_PORT}"
 echo ""
 echo "  git daemon  → port 9418"
 echo "  proxy       → port 9419 (byte counting)"
-echo "  agentcache  → port 8765 (per-repo, on demand)"
+echo "  agentgitsmart  → port 8765 (per-repo, on demand)"
 echo "════════════════════════════════════════════════════"
 echo ""
 echo "Press Ctrl-C to stop."
@@ -99,5 +99,5 @@ exec .venv/bin/uvicorn testharness.app:app \
     --port "$WEB_PORT" \
     --reload \
     --reload-dir testharness \
-    --reload-dir agentcache \
+    --reload-dir agentgitsmart \
     --log-level info

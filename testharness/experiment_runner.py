@@ -4,13 +4,13 @@ Where the single "run" (runner.py) compares approaches on ONE repo, this runs a
 *campaign* across MANY repos and answers the questions the dashboard cares about:
 
   - 1st run (COLD, builds the cache) vs the average of later runs (WARM)
-  - naive vs blobless vs agentcache, side by side
+  - naive vs blobless vs agentgitsmart, side by side
   - across multiple projects at once
   - what a HUMAN commit does to the cache (the per-commit cache is invalidated;
     with the server hook the next agent stays warm, without it goes cold again)
 
 It reuses the harness infrastructure that is already running inside the web app
-(the byte-counting proxy, the git daemon, the agentcache service) so nothing new
+(the byte-counting proxy, the git daemon, the agentgitsmart service) so nothing new
 binds a port, and it reuses the real-agent task so the measurements match.
 
 Design notes
@@ -19,7 +19,7 @@ Design notes
   many of them never mutates the shared bare repo.
 * A HUMAN pass DOES need to move HEAD (that is the whole point — it invalidates
   the commit-keyed cache).  To stay non-destructive we do that on a throwaway
-  branch ``agentcache-exp/<id>`` created from HEAD; agents then target that
+  branch ``agentgitsmart-exp/<id>`` created from HEAD; agents then target that
   branch, and everything (branch + generated cache refs) is deleted at the end.
 * The human commit is created server-side with pure plumbing (no push, no daemon
   reconfig).  If ``hook_warms`` is set we then pre-build the cache for the new
@@ -46,14 +46,14 @@ import pygit2
 
 from . import docker_runner
 from .real_agent import run_real_agent
-from agentcache import bundle as bundle_mod
-from agentcache import cache_writer
-from agentcache import hook as hook_mod
-from agentcache import uninstall as uninstall_mod
-from agentcache.config import AgentCacheConfig
+from agentgitsmart import bundle as bundle_mod
+from agentgitsmart import cache_writer
+from agentgitsmart import hook as hook_mod
+from agentgitsmart import uninstall as uninstall_mod
+from agentgitsmart.config import AgentGitSmartConfig
 
-REF_PREFIX = "refs/agent-cache"
-EXP_BRANCH_PREFIX = "agentcache-exp"
+REF_PREFIX = "refs/agent-git-smart"
+EXP_BRANCH_PREFIX = "agentgitsmart-exp"
 # Project root is the parent of testharness/; scripts/ lives there.
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 # Local bundle directory that _find_bundle() searches on non-Docker runs.
@@ -80,11 +80,11 @@ def should_use_bundle(method: str, is_cold: bool, cold_bundle: bool) -> bool:
       per commit (as the CDN would serve it), so this pass pays only the tiny
       delta and blob fetch, not the full history.
 
-    The cold_bundle flag is only meaningful for the agentcache method; naive and
+    The cold_bundle flag is only meaningful for the agentgitsmart method; naive and
     blobless do not use bundles at all, so cold naive/blobless always return
     False regardless.
     """
-    return (not is_cold) or (method == "agentcache" and cold_bundle)
+    return (not is_cold) or (method == "agentgitsmart" and cold_bundle)
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def run_action_generate(
     branch: str,
     scripts_dir: Path = SCRIPTS_DIR,
 ) -> dict:
-    """Run scripts/generate_agentcache.py as a subprocess (GitHub Action equivalent).
+    """Run scripts/generate_agentgitsmart.py as a subprocess (GitHub Action equivalent).
 
     Builds manifest + symbols + cache ref AND a blobless bundle (the extra work
     the in-process hook does NOT do).  Times the full subprocess wall clock,
@@ -114,13 +114,13 @@ def run_action_generate(
 
     Never raises.
     """
-    bundle_dir = tempfile.mkdtemp(prefix="agentcache_action_")
+    bundle_dir = tempfile.mkdtemp(prefix="agentgitsmart_action_")
     try:
         t0 = time.perf_counter()
         proc = subprocess.run(
             [
                 sys.executable,
-                str(scripts_dir / "generate_agentcache.py"),
+                str(scripts_dir / "generate_agentgitsmart.py"),
                 "--repo",
                 repo_dir,
                 "--commit",
@@ -172,13 +172,13 @@ class ExperimentRunner:
         self,
         *,
         proxy,
-        agentcache_svc,
+        agentgitsmart_svc,
         repos_dir: str,
         proxy_port: int,
         svc_port: int,
     ) -> None:
         self.proxy = proxy
-        self.svc = agentcache_svc
+        self.svc = agentgitsmart_svc
         self.repos_dir = repos_dir
         self.proxy_port = proxy_port
         self.svc_port = svc_port
@@ -235,10 +235,10 @@ class ExperimentRunner:
         use_docker: bool,
         cold_bundle: bool = False,
     ) -> dict:
-        if method == "agentcache":
+        if method == "agentgitsmart":
             await self.svc.switch_repo(repo_dir)
 
-        cold = (method == "agentcache") and not self.cache_ref_exists(repo_dir, commit)
+        cold = (method == "agentgitsmart") and not self.cache_ref_exists(repo_dir, commit)
         use_bundle = should_use_bundle(method, is_cold=cold, cold_bundle=cold_bundle)
         loop = asyncio.get_event_loop()
 
@@ -271,7 +271,7 @@ class ExperimentRunner:
             # CpuSampler.samples are dicts {"t_ms", "cpu_pct"} (see metrics.py),
             # NOT (t, pct) tuples.  Indexing with s[1] raised KeyError(1) whose
             # str() is the opaque "1" — and only on passes long enough for the
-            # 0.2s cgroup sampler to capture a sample (e.g. cold agentcache on a
+            # 0.2s cgroup sampler to capture a sample (e.g. cold agentgitsmart on a
             # larger repo), which is why fast passes silently "worked".
             cpu_pct = round(max((s["cpu_pct"] for s in samples), default=0.0), 1)
             used_docker = True
@@ -298,7 +298,7 @@ class ExperimentRunner:
             "roundtrips": result.get("fetch_roundtrips", 0),
             "cold": bool(cold),
             "bundle_used": result.get("bundle_used", False),
-            "agentcache_detected": result.get("agentcache_detected", False),
+            "agentgitsmart_detected": result.get("agentgitsmart_detected", False),
             "files_found": result.get("files_found", 0),
             "files_selected": result.get("files_selected", 0),
             "modified": result.get("files_modified", 0),
@@ -395,13 +395,13 @@ class ExperimentRunner:
         it can be measured: mode (full/delta), files reindexed/carried, bytes
         materialized, symbol count, fallback reason, etc.
         """
-        cfg = AgentCacheConfig(repo_dir=repo_dir)
+        cfg = AgentGitSmartConfig(repo_dir=repo_dir)
         repo = pygit2.Repository(repo_dir)
         result = hook_mod.generate_for_commit(repo, commit, cfg)
         return result.get("generation", {}) if isinstance(result, dict) else {}
 
     def _delete_cache_ref(self, repo_dir: str, commit: str) -> None:
-        """Delete refs/agent-cache/<commit> if it exists; no-op otherwise."""
+        """Delete refs/agent-git-smart/<commit> if it exists; no-op otherwise."""
         repo = pygit2.Repository(repo_dir)
         ref_name = f"{REF_PREFIX}/{commit}"
         if ref_name in repo.references:
@@ -450,16 +450,16 @@ class ExperimentRunner:
         commit = self.head_commit(repo_dir, f"refs/heads/{branch}")
         nfiles = self.file_count(repo_dir, commit)
         emit(
-            f"[{repo}] start — {nfiles} files · cleared {cleared} agent-cache "
+            f"[{repo}] start — {nfiles} files · cleared {cleared} agent-git-smart "
             f"ref(s), {remaining} remain (verified cold)"
         )
 
-        # When cold_bundle is set, pre-build a blobless bundle so cold agentcache
+        # When cold_bundle is set, pre-build a blobless bundle so cold agentgitsmart
         # passes can use it (production-amortised cold path).  We write it to the
         # same directory and with the same filename that _find_bundle() expects, so
         # it is picked up automatically.  Failure is guarded: a build error never
         # crashes the campaign — the pass simply falls back to bundle_used=False.
-        if cold_bundle and "agentcache" in methods:
+        if cold_bundle and "agentgitsmart" in methods:
             _bundle_path = _LOCAL_BUNDLE_DIR / f"{repo}-{branch}.bundle"
             try:
                 _repo_obj = pygit2.Repository(repo_dir)
@@ -751,7 +751,7 @@ def describe_experiment(config: dict, use_docker: bool) -> str:
 
     if cold_bundle:
         cold_note = (
-            "COLD agentcache passes use a pre-built blobless bundle (production-amortised "
+            "COLD agentgitsmart passes use a pre-built blobless bundle (production-amortised "
             "cold: the bundle is built once per commit and reused, as a CDN would serve it)"
         )
     else:

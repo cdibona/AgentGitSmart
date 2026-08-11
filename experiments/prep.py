@@ -4,7 +4,7 @@ For each repo under benchmark/repos/<name>.git this:
   1. enables uploadpack.allowFilter + allowAnySHA1InWant (needed for blobless
      clones and by-OID blob fetches), and
   2. generates a blobless bootstrap bundle benchmark/bundles/<name>.git-<branch>.bundle
-     if missing (lets agentcache seed history from a local/CDN file instead of
+     if missing (lets agentgitsmart seed history from a local/CDN file instead of
      the git server).
 
 Adding a project to the fleet is therefore just:

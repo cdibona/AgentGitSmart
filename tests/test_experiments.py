@@ -11,7 +11,7 @@ from testharness.real_agent import (
     _add_exclamation,
     _comment_prefixes,
 )
-from agentcache import symbols as sym
+from agentgitsmart import symbols as sym
 
 
 def test_comment_prefixes_by_language():
@@ -57,7 +57,7 @@ def test_fmt_bytes_units():
 def test_runresult_to_dict_roundtrip():
     r = RunResult(
         repo="redis",
-        method="agentcache",
+        method="agentgitsmart",
         iteration=1,
         seed=42,
         cache_existed_before=False,

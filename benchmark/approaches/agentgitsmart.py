@@ -1,4 +1,4 @@
-"""Approach C — the AgentCache flow.
+"""Approach C — the AgentGitSmart flow.
 
 Three phases:
   1. Blobless clone seeded by a bootstrap bundle (optional), or just
@@ -9,7 +9,7 @@ Three phases:
   3. ONE ``git fetch origin <oids>`` → a single packfile, no per-blob
      round-trips.
 
-This is the pattern the agentcache design is built around.  The agent
+This is the pattern the agentgitsmart design is built around.  The agent
 then reads blobs directly by OID (``git cat-file blob <oid>``) without
 ever checking out a full working tree.
 """
@@ -64,18 +64,18 @@ def run(
     work_dir: str,
     bundle_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """AgentCache cold start: blobless clone → resolve → targeted fetch.
+    """AgentGitSmart cold start: blobless clone → resolve → targeted fetch.
 
     Parameters
     ----------
     repo_url:
         URL or ``file://`` path to the bare repo.
     commit:
-        Full commit hex that the agentcache service has a cache for.
+        Full commit hex that the agentgitsmart service has a cache for.
     branch:
         Branch to clone (so git knows what HEAD is).
     service_url:
-        Base URL of the running agentcache Flask service
+        Base URL of the running agentgitsmart Flask service
         (e.g. ``http://127.0.0.1:8765``).
     target_paths:
         Paths the agent needs to read.
@@ -106,7 +106,7 @@ def run(
 
     clone_proc = subprocess.run(clone_cmd, capture_output=True, text=True)
     if clone_proc.returncode != 0:
-        raise RuntimeError(f"agentcache clone failed:\n{clone_proc.stderr}")
+        raise RuntimeError(f"agentgitsmart clone failed:\n{clone_proc.stderr}")
     t_after_clone = time.monotonic()
 
     # ------------------------------------------------------------------
@@ -128,7 +128,7 @@ def run(
             text=True,
         )
         if fetch_proc.returncode != 0:
-            raise RuntimeError(f"agentcache targeted fetch failed:\n{fetch_proc.stderr}")
+            raise RuntimeError(f"agentgitsmart targeted fetch failed:\n{fetch_proc.stderr}")
     t_after_fetch = time.monotonic()
 
     elapsed = t_after_fetch - t0
@@ -147,7 +147,7 @@ def run(
     file_count = _count_files(clone_dir)
 
     return {
-        "approach": "agentcache (blobless → resolve → targeted fetch)",
+        "approach": "agentgitsmart (blobless → resolve → targeted fetch)",
         "elapsed_s": round(elapsed, 3),
         "phase_clone_s": round(t_after_clone - t0, 3),
         "phase_resolve_s": round(t_after_resolve - t_after_clone, 3),

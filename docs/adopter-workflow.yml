@@ -1,23 +1,23 @@
-# Adopter template — copy to .github/workflows/agentcache.yml.
-# Generates refs/agent-cache/<sha> on every push to main.
+# Adopter template — copy to .github/workflows/agentgitsmart.yml.
+# Generates refs/agent-git-smart/<sha> on every push to main.
 #
 # What this does:
 #   1. Checks out your repo with full history (needed for the blobless bundle).
-#   2. Installs the published agentcache package via pip.
-#   3. Runs `agentcache-generate` to build manifest + symbols + bundle and
-#      store them as an orphan commit under refs/agent-cache/<commit-sha>.
+#   2. Installs the published agentgitsmart package via pip.
+#   3. Runs `agentgitsmart-generate` to build manifest + symbols + bundle and
+#      store them as an orphan commit under refs/agent-git-smart/<commit-sha>.
 #   4. Pushes the side ref back so agents can fetch it directly.
 #   5. Uploads the blobless bootstrap bundle as a workflow artifact.
 #
-# Pushing refs/agent-cache/* does NOT re-trigger this workflow because it
+# Pushing refs/agent-git-smart/* does NOT re-trigger this workflow because it
 # only listens on branches: [main] — so there is no infinite loop.
 #
 # After copying, customise:
-#   - The concurrency group name (replace "agentcache-" with something unique).
+#   - The concurrency group name (replace "agentgitsmart-" with something unique).
 #   - The bundle artifact retention-days if you want a different window.
 #   - The python-version if your repo requires something other than 3.11.
 
-name: AgentCache generate
+name: AgentGitSmart generate
 
 on:
   push:
@@ -28,7 +28,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: agentcache-${{ github.ref }}
+  group: agentgitsmart-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -48,19 +48,19 @@ jobs:
       - name: Install universal-ctags (enables the symbol index)
         run: sudo apt-get update && sudo apt-get install -y universal-ctags
 
-      - name: Install agentcache
+      - name: Install agentgitsmart
         run: |
           python -m pip install --upgrade pip
-          pip install "agentcache @ git+https://github.com/cdibona/AgentCache@main"
+          pip install "agentgitsmart @ git+https://github.com/cdibona/AgentGitSmart@main"
 
-      - name: Generate the agent-cache for HEAD
+      - name: Generate the agent-git-smart for HEAD
         id: gen
         run: |
-          agentcache-generate --repo . --commit HEAD --bundle-dir _bundles | tee gen.out
-          REF=$(grep '::AGENTCACHE_REF::' gen.out | sed 's/.*:://')
+          agentgitsmart-generate --repo . --commit HEAD --bundle-dir _bundles | tee gen.out
+          REF=$(grep '::AGENTGITSMART_REF::' gen.out | sed 's/.*:://')
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
-      - name: Publish the side ref (refs/agent-cache/<commit>)
+      - name: Publish the side ref (refs/agent-git-smart/<commit>)
         continue-on-error: true   # some hosts restrict custom ref namespaces
         run: |
           REF="${{ steps.gen.outputs.ref }}"
@@ -70,7 +70,7 @@ jobs:
       - name: Upload cache artifacts (bundle)
         uses: actions/upload-artifact@v4
         with:
-          name: agentcache-${{ github.sha }}
+          name: agentgitsmart-${{ github.sha }}
           path: |
             _bundles/*.bundle
           if-no-files-found: warn
@@ -80,7 +80,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## agentcache generated for \`${{ github.sha }}\`"
+            echo "## agentgitsmart generated for \`${{ github.sha }}\`"
             echo ""
             grep -E 'manifest|symbols|cache_ref|bundle' gen.out || true
             echo ""

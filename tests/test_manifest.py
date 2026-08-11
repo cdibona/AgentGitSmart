@@ -6,7 +6,7 @@ import subprocess
 
 import pygit2
 
-from agentcache.manifest import build_manifest
+from agentgitsmart.manifest import build_manifest
 from tests.conftest import FILES
 
 

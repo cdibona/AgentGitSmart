@@ -1,4 +1,4 @@
-"""Tests for scripts/try_agentcache.py.
+"""Tests for scripts/try_agentgitsmart.py.
 
 Three tiers of coverage:
   1. Pure function tests (fast, no I/O):
@@ -10,7 +10,7 @@ Three tiers of coverage:
   2. CLI --help smoke test (fast, no network/daemon).
 
   3. Integration smoke test: tiny locally-built git repo → full measured run.
-     Starts a git daemon, byte-counting proxy, and agentcache service on
+     Starts a git daemon, byte-counting proxy, and agentgitsmart service on
      ephemeral ports.  Skipped if ``git`` is not on PATH.  Marked slow so
      ``pytest -m "not slow"`` bypasses it (though it still runs in the
      default ``pytest -q`` run).
@@ -34,7 +34,7 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-from scripts.try_agentcache import (  # noqa: E402
+from scripts.try_agentgitsmart import (  # noqa: E402
     render_try_report,
     resolve_target,
     try_result_json,
@@ -51,8 +51,8 @@ def _make_summary(
     naive_warm: int,
     blobless_cold: int,
     blobless_warm: int,
-    agentcache_cold: int,
-    agentcache_warm: int,
+    agentgitsmart_cold: int,
+    agentgitsmart_warm: int,
     error: Optional[str] = None,
 ) -> dict:
     """Build a summary dict that mirrors _summarize_campaign() output."""
@@ -60,7 +60,7 @@ def _make_summary(
         return {"error": error}
 
     bl_w = blobless_warm
-    ac_w = agentcache_warm
+    ac_w = agentgitsmart_warm
     naive_w = naive_warm
 
     return {
@@ -78,8 +78,8 @@ def _make_summary(
             "warm_avg_wall": 0.5,
             "runs": 2,
         },
-        "agentcache": {
-            "cold_bytes": agentcache_cold,
+        "agentgitsmart": {
+            "cold_bytes": agentgitsmart_cold,
             "warm_avg_bytes": ac_w,
             "cold_wall": 3.0,
             "warm_avg_wall": 0.1,
@@ -88,7 +88,7 @@ def _make_summary(
         "_win_vs_naive": {
             "naive": 1.0,
             "blobless": round(naive_w / bl_w, 1) if bl_w else None,
-            "agentcache": round(naive_w / ac_w, 1) if ac_w else None,
+            "agentgitsmart": round(naive_w / ac_w, 1) if ac_w else None,
         },
         "_win_vs_naive_wall": {},
     }
@@ -102,22 +102,22 @@ _FD_SUMMARY = _make_summary(
     naive_warm=2_000_000,
     blobless_cold=400_000,
     blobless_warm=200_000,
-    agentcache_cold=3_000_000,
-    agentcache_warm=195_000,
+    agentgitsmart_cold=3_000_000,
+    agentgitsmart_warm=195_000,
 )
 _FD_FILES = 57
 
 # anthropic-cookbook-like: 600 files, blob-heavy (notebooks/images dominate).
 # Warm saving: (50 000 000 - 500 000) / 50 000 000 ≈ 99%.
 # Break-even: ceil((10M - 1M) / 49.5M) = ceil(0.18) = 1 pass.
-# Verdict: "agentcache worthwhile".
+# Verdict: "agentgitsmart worthwhile".
 _COOKBOOK_SUMMARY = _make_summary(
     naive_cold=100_000_000,
     naive_warm=80_000_000,
     blobless_cold=1_000_000,
     blobless_warm=50_000_000,
-    agentcache_cold=10_000_000,
-    agentcache_warm=500_000,
+    agentgitsmart_cold=10_000_000,
+    agentgitsmart_warm=500_000,
 )
 _COOKBOOK_FILES = 600
 
@@ -130,8 +130,8 @@ _MID_SUMMARY = _make_summary(
     naive_warm=15_000_000,
     blobless_cold=1_000_000,
     blobless_warm=10_000_000,
-    agentcache_cold=5_000_000,
-    agentcache_warm=7_000_000,
+    agentgitsmart_cold=5_000_000,
+    agentgitsmart_warm=7_000_000,
 )
 _MID_FILES = 300
 
@@ -141,8 +141,8 @@ _ERROR_SUMMARY = _make_summary(
     naive_warm=0,
     blobless_cold=0,
     blobless_warm=0,
-    agentcache_cold=0,
-    agentcache_warm=0,
+    agentgitsmart_cold=0,
+    agentgitsmart_warm=0,
     error="git daemon failed to start on port 19418",
 )
 
@@ -157,9 +157,9 @@ class TestRenderTryReport:
         assert "blobless is enough" in report
 
     def test_cookbook_verdict_is_worthwhile(self):
-        # warm_saving_ratio ≈ 99%, break-even = 1 → "agentcache worthwhile"
+        # warm_saving_ratio ≈ 99%, break-even = 1 → "agentgitsmart worthwhile"
         report = render_try_report(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
-        assert "agentcache worthwhile" in report
+        assert "agentgitsmart worthwhile" in report
 
     def test_contains_cold_header(self):
         report = render_try_report(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
@@ -174,7 +174,7 @@ class TestRenderTryReport:
         lower = report.lower()
         assert "naive" in lower
         assert "blobless" in lower
-        assert "agentcache" in lower
+        assert "agentgitsmart" in lower
 
     def test_caveat_mentions_shallow_or_depth1(self):
         """Report must warn that blobless cold is depth-1 shallow."""
@@ -236,7 +236,7 @@ class TestRenderTryReport:
         assert "1" in report
 
     def test_mid_saving_ratio_triggers_high_reuse(self):
-        """Mid-tier: agentcache_warm (7M) > blobless_warm (10M)? No — 7M < 10M.
+        """Mid-tier: agentgitsmart_warm (7M) > blobless_warm (10M)? No — 7M < 10M.
 
         warm_saved = 10M - 7M = 3M; ratio = 3/10 = 30%.
         30% >= 15% but 30% < 40% → "worth it only at high reuse".
@@ -278,15 +278,25 @@ class TestTryResultJson:
         result = try_result_json(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
         assert result["measured"] is True
 
-    def test_cold_bytes_has_three_keys(self):
+    def test_cold_bytes_has_four_keys(self):
         result = try_result_json(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
         cold = result["cold_bytes"]
-        assert set(cold.keys()) == {"naive", "blobless", "agentcache"}
+        assert set(cold.keys()) == {
+            "naive",
+            "blobless",
+            "blobless_batch",
+            "agentgitsmart",
+        }
 
-    def test_warm_bytes_has_three_keys(self):
+    def test_warm_bytes_has_four_keys(self):
         result = try_result_json(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
         warm = result["warm_bytes"]
-        assert set(warm.keys()) == {"naive", "blobless", "agentcache"}
+        assert set(warm.keys()) == {
+            "naive",
+            "blobless",
+            "blobless_batch",
+            "agentgitsmart",
+        }
 
     def test_cold_bytes_values_are_ints_or_none(self):
         result = try_result_json(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
@@ -304,7 +314,7 @@ class TestTryResultJson:
 
     def test_cookbook_verdict_is_worthwhile(self):
         result = try_result_json(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
-        assert result["verdict"] == "agentcache worthwhile"
+        assert result["verdict"] == "agentgitsmart worthwhile"
 
     def test_cookbook_saving_pct_is_large(self):
         result = try_result_json(_COOKBOOK_SUMMARY, _COOKBOOK_FILES)
@@ -365,7 +375,7 @@ class TestTryResultJson:
         known = {
             "blobless is enough",
             "worth it only at high reuse",
-            "agentcache worthwhile",
+            "agentgitsmart worthwhile",
         }
         for summary, files in [
             (_FD_SUMMARY, _FD_FILES),
@@ -445,7 +455,7 @@ class TestCLIValidation:
         non_git = tmp_path / "not_a_repo"
         non_git.mkdir()
         proc = subprocess.run(
-            [sys.executable, str(_ROOT / "scripts" / "try_agentcache.py")],
+            [sys.executable, str(_ROOT / "scripts" / "try_agentgitsmart.py")],
             capture_output=True,
             text=True,
             cwd=str(non_git),
@@ -460,7 +470,7 @@ class TestCLIValidation:
         non_git = tmp_path / "not_a_repo"
         non_git.mkdir()
         proc = subprocess.run(
-            [sys.executable, str(_ROOT / "scripts" / "try_agentcache.py")],
+            [sys.executable, str(_ROOT / "scripts" / "try_agentgitsmart.py")],
             capture_output=True,
             text=True,
             cwd=str(non_git),
@@ -476,7 +486,7 @@ class TestCLIValidation:
         non_git = tmp_path / "not_a_repo"
         non_git.mkdir()
         proc = subprocess.run(
-            [sys.executable, str(_ROOT / "scripts" / "try_agentcache.py")],
+            [sys.executable, str(_ROOT / "scripts" / "try_agentgitsmart.py")],
             capture_output=True,
             text=True,
             cwd=str(non_git),
@@ -493,7 +503,7 @@ class TestCLIValidation:
         proc = subprocess.run(
             [
                 sys.executable,
-                str(_ROOT / "scripts" / "try_agentcache.py"),
+                str(_ROOT / "scripts" / "try_agentgitsmart.py"),
                 str(non_git),
             ],
             capture_output=True,
@@ -513,7 +523,7 @@ class TestCLIValidation:
         proc = subprocess.run(
             [
                 sys.executable,
-                str(_ROOT / "scripts" / "try_agentcache.py"),
+                str(_ROOT / "scripts" / "try_agentgitsmart.py"),
                 "https://invalid.test/nonexistent/repo.git",
             ],
             capture_output=True,
@@ -533,7 +543,7 @@ class TestCLIValidation:
 class TestCLIHelp:
     def test_help_exits_zero(self):
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -542,7 +552,7 @@ class TestCLIHelp:
 
     def test_help_mentions_target(self):
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -551,7 +561,7 @@ class TestCLIHelp:
 
     def test_help_mentions_json_flag(self):
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -560,7 +570,7 @@ class TestCLIHelp:
 
     def test_help_mentions_verbose_flag(self):
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -569,7 +579,7 @@ class TestCLIHelp:
 
     def test_help_mentions_exit_code_advisory(self):
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -580,7 +590,7 @@ class TestCLIHelp:
     def test_help_mentions_repo_root(self):
         """Help must tell the user to run from their repo root."""
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -593,7 +603,7 @@ class TestCLIHelp:
     def test_help_target_is_optional(self):
         """With nargs='?', argparse usage line shows [TARGET] (optional)."""
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", "--help"],
+            [sys.executable, "scripts/try_agentgitsmart.py", "--help"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -662,7 +672,7 @@ class TestCLIWithTinyRepo:
     def test_tiny_repo_exits_zero(self, tmp_path):
         repo = self._build_tiny_repo(tmp_path)
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", str(repo)],
+            [sys.executable, "scripts/try_agentgitsmart.py", str(repo)],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -677,7 +687,7 @@ class TestCLIWithTinyRepo:
     def test_tiny_repo_output_contains_verdict(self, tmp_path):
         repo = self._build_tiny_repo(tmp_path)
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", str(repo)],
+            [sys.executable, "scripts/try_agentgitsmart.py", str(repo)],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),
@@ -692,7 +702,7 @@ class TestCLIWithTinyRepo:
     def test_tiny_repo_json_mode_valid(self, tmp_path):
         repo = self._build_tiny_repo(tmp_path)
         proc = subprocess.run(
-            [sys.executable, "scripts/try_agentcache.py", str(repo), "--json"],
+            [sys.executable, "scripts/try_agentgitsmart.py", str(repo), "--json"],
             capture_output=True,
             text=True,
             cwd=str(_ROOT),

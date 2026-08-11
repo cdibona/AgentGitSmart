@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""assess_repo.py — "Is agentcache worth it for my repo?" analyzer.
+"""assess_repo.py — "Is agentgitsmart worth it for my repo?" analyzer.
 
 A STATIC, cheap prediction from repo shape — NOT a measured experiment.
 Points at a GitHub URL or local clone and returns an honest recommendation.
@@ -11,9 +11,9 @@ Exit code is always 0 (advisory tool).
 
 Grounding (CALIBRATED against the real 15-repo harness experiment, whose
 measured verdicts come from proxy-measured bytes, not repo shape):
-  - agentcache's warm win is driven by BLOB-HEAVINESS: large *genuinely
+  - agentgitsmart's warm win is driven by BLOB-HEAVINESS: large *genuinely
     non-source* assets (notebooks, images, binaries, generated data) that
-    blobless drags in but agentcache skips.
+    blobless drags in but agentgitsmart skips.
   - The naive static "asset_ratio" OVER-COUNTS: large source files and
     extensionless text/scripts inflate it, which made cpython and git LOOK
     blob-heavy when the harness measured them as "blobless is enough".  We fix
@@ -28,7 +28,7 @@ ASYMMETRIC SAFETY PHILOSOPHY (the whole point of this recalibration):
   this predictor is deliberately CONSERVATIVE: when static signals can't
   confidently call it, it ABSTAINS ("inconclusive — measure to be sure")
   rather than over-promise.  HARD CONSTRAINT (validated on the 15-repo set):
-  it NEVER returns "agentcache worthwhile" for a repo the harness measured as
+  it NEVER returns "agentgitsmart worthwhile" for a repo the harness measured as
   "blobless is enough" (cpython, fd, git, git-lfs).
 """
 
@@ -46,12 +46,12 @@ from pathlib import Path, PurePosixPath
 # Threshold constants — tune here without touching logic
 # ---------------------------------------------------------------------------
 
-# Repos with fewer files than this are unlikely to benefit from agentcache.
+# Repos with fewer files than this are unlikely to benefit from agentgitsmart.
 # (fd has 57 files; the harness measured it "blobless is enough".)
 _ASSESS_MIN_FILES: int = 150
 
 # --- WORTHWHILE gate (deliberately a HIGH bar — "cookbook-like extreme" only) ---
-# To emit "agentcache worthwhile" we require BOTH of these to hold, so that a
+# To emit "agentgitsmart worthwhile" we require BOTH of these to hold, so that a
 # high asset_ratio caused by large *source* files or extensionless text/scripts
 # (the cpython / git false-positive failure mode) does NOT trip it:
 #   1. asset_ratio          >= _ASSESS_WORTHWHILE_ASSET_RATIO   (extreme blob dominance)
@@ -156,7 +156,7 @@ _SOURCE_EXTS: frozenset[str] = frozenset(
 # Label constants
 # ---------------------------------------------------------------------------
 
-_LABEL_WORTHWHILE = "agentcache worthwhile"
+_LABEL_WORTHWHILE = "agentgitsmart worthwhile"
 _LABEL_BLOBLESS = "blobless is enough"
 # New 4th, ABSTAINING outcome for the messy middle where static signals can't
 # confidently call it.  Emitting this (rather than guessing "worthwhile") is how
@@ -183,7 +183,7 @@ def predict_suitability(
     history_depth: "int | None" = None,
     nonsource_asset_bytes: "int | None" = None,
 ) -> dict:
-    """Predict whether agentcache is worth deploying for a repo.
+    """Predict whether agentgitsmart is worth deploying for a repo.
 
     This is a STATIC, CONSERVATIVE heuristic based on repo shape — not a
     measured result.  It is deliberately asymmetric: a false "ADOPT" is treated
@@ -192,7 +192,7 @@ def predict_suitability(
     sure") rather than over-promise.
 
     HARD SAFETY CONSTRAINT (validated against the real 15-repo harness): this
-    function NEVER returns "agentcache worthwhile" for a repo the harness
+    function NEVER returns "agentgitsmart worthwhile" for a repo the harness
     measured as "blobless is enough".  It achieves that by requiring the
     worthwhile verdict to clear a HIGH bar on BOTH the overall asset ratio AND
     the *genuine* non-source ratio — so a high asset_ratio caused by large
@@ -215,7 +215,7 @@ def predict_suitability(
 
     Returns:
         dict with keys:
-          label      — "agentcache worthwhile" | "blobless is enough" |
+          label      — "agentgitsmart worthwhile" | "blobless is enough" |
                        "inconclusive — measure to be sure"
           reason     — one-line human-readable explanation (states the asymmetry)
           note       — optional cold-cost warning for deep-history repos
@@ -247,7 +247,7 @@ def predict_suitability(
         label = _LABEL_BLOBLESS
         reason = (
             f"small repo (~{file_count} files) — blobless's shallow clone is "
-            "already cheap; agentcache's overhead isn't justified"
+            "already cheap; agentgitsmart's overhead isn't justified"
         )
         confidence = "high"
 
@@ -256,7 +256,7 @@ def predict_suitability(
         label = _LABEL_BLOBLESS
         reason = (
             f"little genuine non-source payload (~{pct}% of bytes) — blobless "
-            "already fetches almost nothing extra; agentcache's warm edge is "
+            "already fetches almost nothing extra; agentgitsmart's warm edge is "
             "marginal"
         )
         confidence = "medium"
@@ -271,7 +271,7 @@ def predict_suitability(
         label = _LABEL_WORTHWHILE
         reason = (
             f"blob-dominated at the extreme (~{apct}% assets, ~{npct}% genuine "
-            "non-source) — agentcache skips what naive/blobless drag in; this "
+            "non-source) — agentgitsmart skips what naive/blobless drag in; this "
             "is the clear, cookbook-like case where adopting is safe to "
             "recommend"
         )
@@ -489,10 +489,19 @@ def _fmt_pct(ratio: float) -> str:
 _FOOTER = (
     "\nThis is a STATIC prediction from repo shape, not a measured result.\n"
     "It is deliberately CONSERVATIVE: a false 'adopt' is worse than a false\n"
-    "'skip', so anything short of 'agentcache worthwhile' (i.e. 'blobless is\n"
+    "'skip', so anything short of 'agentgitsmart worthwhile' (i.e. 'blobless is\n"
     "enough' or 'inconclusive — measure to be sure') means: do NOT adopt yet —\n"
     "run the harness to MEASURE before adopting.\n"
     "  see experiments/ and scripts/render_experiment_report.py\n"
+    "\nEVEN WHEN this says 'agentgitsmart worthwhile', the MEASURED trial is what\n"
+    "decides HOW MUCH machinery you need. It compares three real options and\n"
+    "returns one of:\n"
+    "  1. blobless is enough      — stock 'git clone --filter=blob:none', no tooling\n"
+    "  2. AgentGitSmartBlobless      — blobless + ONE batched fetch keyed by locally\n"
+    "                               read OIDs; NO server, hook, or side ref\n"
+    "  3. agentgitsmart worthwhile   — the full server/hook/bundle earns its keep\n"
+    "A static tool cannot tell (2) from (3) — only measurement can. Run:\n"
+    "  python scripts/try_agentgitsmart.py <path-or-url>\n"
 )
 
 

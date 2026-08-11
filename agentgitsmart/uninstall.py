@@ -1,21 +1,21 @@
-"""Erase every trace of agentcache from a repository.
+"""Erase every trace of agentgitsmart from a repository.
 
-agentcache is deliberately low-footprint: it stores its artifacts as orphan
-commits under ``refs/agent-cache/*`` — out of the main history, invisible to
+agentgitsmart is deliberately low-footprint: it stores its artifacts as orphan
+commits under ``refs/agent-git-smart/*`` — out of the main history, invisible to
 ``git log`` / ``git branch`` / normal clones.  Nothing in your working tree
 or commit history is ever touched.
 
 Still, for testing and user comfort, this tool removes the side refs (and,
 optionally, the post-receive hook and any generated bundles) and reclaims the
 now-unreachable objects with ``git gc``.  After it runs, the repository is
-byte-for-byte indistinguishable from one that never had agentcache.
+byte-for-byte indistinguishable from one that never had agentgitsmart.
 
 Usage::
 
-    python -m agentcache.uninstall --repo /srv/git/myrepo.git           # dry run
-    python -m agentcache.uninstall --repo /srv/git/myrepo.git --yes      # do it
-    python -m agentcache.uninstall --repo ... --yes --remove-hook --gc
-    python -m agentcache.uninstall --repo ... --yes --bundles /srv/bundles
+    python -m agentgitsmart.uninstall --repo /srv/git/myrepo.git           # dry run
+    python -m agentgitsmart.uninstall --repo /srv/git/myrepo.git --yes      # do it
+    python -m agentgitsmart.uninstall --repo ... --yes --remove-hook --gc
+    python -m agentgitsmart.uninstall --repo ... --yes --bundles /srv/bundles
 """
 
 from __future__ import annotations
@@ -32,36 +32,36 @@ from .cache_writer import list_caches
 
 
 def find_cache_refs(
-    repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache"
+    repo: pygit2.Repository, ref_prefix: str = "refs/agent-git-smart"
 ) -> List[str]:
-    """Return the full names of all agent-cache side refs in *repo*."""
+    """Return the full names of all agent-git-smart side refs in *repo*."""
     prefix = ref_prefix.rstrip("/") + "/"
     return sorted(name for name in repo.references if name.startswith(prefix))
 
 
 def delete_cache_refs(
-    repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache"
+    repo: pygit2.Repository, ref_prefix: str = "refs/agent-git-smart"
 ) -> int:
-    """Delete every agent-cache side ref. Returns the count removed."""
+    """Delete every agent-git-smart side ref. Returns the count removed."""
     refs = find_cache_refs(repo, ref_prefix)
     for name in refs:
         repo.references[name].delete()
     return len(refs)
 
 
-def _hook_is_agentcache(hook_path: str) -> bool:
-    """True if the post-receive hook references agentcache (safe to remove)."""
+def _hook_is_agentgitsmart(hook_path: str) -> bool:
+    """True if the post-receive hook references agentgitsmart (safe to remove)."""
     try:
         with open(hook_path, "r", encoding="utf-8", errors="replace") as fh:
-            return "agentcache" in fh.read()
+            return "agentgitsmart" in fh.read()
     except OSError:
         return False
 
 
 def remove_hook(repo_dir: str) -> Optional[str]:
-    """Remove the post-receive hook if it is an agentcache shim. Returns path removed."""
+    """Remove the post-receive hook if it is an agentgitsmart shim. Returns path removed."""
     hook_path = os.path.join(repo_dir, "hooks", "post-receive")
-    if os.path.exists(hook_path) and _hook_is_agentcache(hook_path):
+    if os.path.exists(hook_path) and _hook_is_agentgitsmart(hook_path):
         os.remove(hook_path)
         return hook_path
     return None
@@ -92,13 +92,13 @@ def run_gc(repo_dir: str) -> None:
 def erase(
     repo_dir: str,
     *,
-    ref_prefix: str = "refs/agent-cache",
+    ref_prefix: str = "refs/agent-git-smart",
     remove_hook_too: bool = False,
     bundle_dir: Optional[str] = None,
     gc: bool = False,
     dry_run: bool = True,
 ) -> dict:
-    """Erase agentcache traces from the repo at *repo_dir*.
+    """Erase agentgitsmart traces from the repo at *repo_dir*.
 
     With ``dry_run=True`` (default) nothing is changed; the returned dict
     reports what *would* be removed.
@@ -141,8 +141,8 @@ def main(argv=None) -> int:
     p.add_argument("--repo", required=True, help="Path to the (bare) git repo.")
     p.add_argument(
         "--ref-prefix",
-        default="refs/agent-cache",
-        help="Side-ref namespace to erase (default: refs/agent-cache).",
+        default="refs/agent-git-smart",
+        help="Side-ref namespace to erase (default: refs/agent-git-smart).",
     )
     p.add_argument(
         "--yes",
@@ -152,7 +152,7 @@ def main(argv=None) -> int:
     p.add_argument(
         "--remove-hook",
         action="store_true",
-        help="Also remove the post-receive hook (only if it's an agentcache shim).",
+        help="Also remove the post-receive hook (only if it's an agentgitsmart shim).",
     )
     p.add_argument(
         "--bundles",
@@ -168,7 +168,7 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
 
     if not os.path.exists(args.repo):
-        print(f"agentcache uninstall: repo not found: {args.repo}", file=sys.stderr)
+        print(f"agentgitsmart uninstall: repo not found: {args.repo}", file=sys.stderr)
         return 1
 
     summary = erase(
@@ -186,7 +186,7 @@ def main(argv=None) -> int:
         for r in summary["cache_refs"]:
             print(f"  - {r}")
         if args.remove_hook:
-            print("  - would remove post-receive hook (if agentcache shim)")
+            print("  - would remove post-receive hook (if agentgitsmart shim)")
         if args.bundles:
             print(f"  - would remove *.bundle from {args.bundles}")
         if args.gc:
@@ -200,7 +200,7 @@ def main(argv=None) -> int:
             print(f"Removed {summary['bundles_removed']} bundle file(s)")
         if summary["gc_run"]:
             print("Ran git gc --prune=now")
-        print("agentcache traces erased.")
+        print("agentgitsmart traces erased.")
 
     return 0
 

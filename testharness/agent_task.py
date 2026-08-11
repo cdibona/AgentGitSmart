@@ -1,6 +1,10 @@
-"""Simulate realistic agent work after a clone, for each of the three approaches.
+"""Simulate realistic agent work after a clone, for each approach.
 
 Stdlib-only: importable inside Docker containers that only have git + python3.
+
+``blobless_batch`` (AgentGitSmartBlobless) reuses the ``blobless`` post-clone task:
+the two differ only in HOW the clone fetched content (N lazy fetches vs one
+batched fetch), not in the agent-side read/grep work simulated here.
 """
 from __future__ import annotations
 
@@ -60,10 +64,10 @@ def run_agent_task(
     try:
         if approach == "naive":
             _task_naive(workspace, target_paths, symbol, result)
-        elif approach == "blobless":
+        elif approach in ("blobless", "blobless_batch"):
             _task_blobless(workspace, target_paths, symbol, result)
-        elif approach == "agentcache":
-            _task_agentcache(workspace, commit, target_paths, service_url, symbol, result)
+        elif approach == "agentgitsmart":
+            _task_agentgitsmart(workspace, commit, target_paths, service_url, symbol, result)
     except Exception as e:
         result["detail"]["notes"] += f" ERROR: {e}"
 
@@ -166,9 +170,9 @@ def _task_blobless(workspace: str, target_paths: list[str], symbol: str, result:
     )
 
 
-def _task_agentcache(workspace: str, commit: str, target_paths: list[str],
+def _task_agentgitsmart(workspace: str, commit: str, target_paths: list[str],
                      service_url: str, symbol: str, result: dict) -> None:
-    """AgentCache: use service for symbol lookup, batch fetch needed blobs."""
+    """AgentGitSmart: use service for symbol lookup, batch fetch needed blobs."""
     roundtrips = 0
 
     # Task 1: symbol lookup via service (1 HTTP round-trip)

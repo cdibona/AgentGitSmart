@@ -1,23 +1,23 @@
-# .agentcache — machine-readable agentcache discovery for AI agents
+# .agentgitsmart — machine-readable agentgitsmart discovery for AI agents
 #
-# Copy this file to the root of any repo that has agentcache installed,
-# rename it to ".agentcache", and fill in the values.
+# Copy this file to the root of any repo that has agentgitsmart installed,
+# rename it to ".agentgitsmart", and fill in the values.
 #
 # Agents that discover this file can extract the service URL without
 # parsing prose:
 #
 #   python3 -c "
 #   import re, pathlib
-#   cfg = pathlib.Path('.agentcache').read_text()
+#   cfg = pathlib.Path('.agentgitsmart').read_text()
 #   url = re.search(r'service_url\s*=\s*\"(.+?)\"', cfg).group(1)
 #   print(url)
 #   "
 #
 # Or with grep:
-#   grep '^service_url' .agentcache | cut -d'"' -f2
+#   grep '^service_url' .agentgitsmart | cut -d'"' -f2
 
-# Required: URL of the running agentcache query service.
-service_url = "https://agentcache.example.com"
+# Required: URL of the running agentgitsmart query service.
+service_url = "https://agentgitsmart.example.com"
 
 # Optional: CDN URL for blobless bootstrap bundles.
 # Agents can pass this to --bundle-uri for a faster cold start.

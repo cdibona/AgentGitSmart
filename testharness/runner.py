@@ -31,10 +31,10 @@ _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from agentcache.config import AgentCacheConfig  # noqa: E402
-from agentcache.hook import generate_for_commit  # noqa: E402
-from benchmark.approaches import naive, blobless  # noqa: E402
-from benchmark.approaches import agentcache as ac_approach  # noqa: E402
+from agentgitsmart.config import AgentGitSmartConfig  # noqa: E402
+from agentgitsmart.hook import generate_for_commit  # noqa: E402
+from benchmark.approaches import naive, blobless, blobless_batch  # noqa: E402
+from benchmark.approaches import agentgitsmart as ac_approach  # noqa: E402
 from .agent_task import run_agent_task  # noqa: E402
 from .docker_runner import ensure_image, is_docker_available, run_in_container  # noqa: E402
 from .metrics import CpuSampler, merge_timeseries  # noqa: E402
@@ -68,13 +68,13 @@ class TestRunner:
         proxy: ByteCountingProxy,
         repos_dir: str,
         git_proxy_port: int,
-        agentcache_port: int = 8765,
+        agentgitsmart_port: int = 8765,
         symbol: str = "ClassDef",
     ) -> None:
         self.proxy = proxy
         self.repos_dir = os.path.abspath(repos_dir)
         self.git_proxy_port = git_proxy_port
-        self.agentcache_url = f"http://127.0.0.1:{agentcache_port}"
+        self.agentgitsmart_url = f"http://127.0.0.1:{agentgitsmart_port}"
         self.symbol = symbol
 
         # Active SSE queues keyed by run_id.
@@ -104,9 +104,9 @@ class TestRunner:
     # ------------------------------------------------------------------
 
     def _ensure_cache(self, repo_path: str, commit_hex: str) -> None:
-        """Generate agentcache artifacts if not already present."""
+        """Generate agentgitsmart artifacts if not already present."""
         repo = pygit2.Repository(repo_path)
-        cfg = AgentCacheConfig(repo_dir=repo_path)
+        cfg = AgentGitSmartConfig(repo_dir=repo_path)
         ref_name = f"{cfg.ref_prefix}/{commit_hex}"
         if ref_name in repo.references:
             return  # already cached
@@ -135,7 +135,17 @@ class TestRunner:
     ) -> Dict[str, Any]:
         return blobless.run(repo_url, commit, branch, target_paths, work_dir)
 
-    def _run_agentcache(
+    def _run_blobless_batch(
+        self,
+        repo_url: str,
+        commit: str,
+        branch: str,
+        target_paths: List[str],
+        work_dir: str,
+    ) -> Dict[str, Any]:
+        return blobless_batch.run(repo_url, commit, branch, target_paths, work_dir)
+
+    def _run_agentgitsmart(
         self,
         repo_url: str,
         commit: str,
@@ -144,7 +154,7 @@ class TestRunner:
         work_dir: str,
     ) -> Dict[str, Any]:
         return ac_approach.run(
-            repo_url, commit, branch, self.agentcache_url, target_paths, work_dir
+            repo_url, commit, branch, self.agentgitsmart_url, target_paths, work_dir
         )
 
     # ------------------------------------------------------------------
@@ -192,9 +202,9 @@ class TestRunner:
         except Exception:
             pass
 
-        # Generate agentcache artifacts (fast no-op if already cached).
-        if "agentcache" in approaches:
-            self._log(run_id, "Generating agentcache cache (if needed)…")
+        # Generate agentgitsmart artifacts (fast no-op if already cached).
+        if "agentgitsmart" in approaches:
+            self._log(run_id, "Generating agentgitsmart cache (if needed)…")
             await _in_thread(self._ensure_cache, repo_path, commit_hex)
             self._log(run_id, "Cache ready.")
 
@@ -258,7 +268,7 @@ class TestRunner:
                                     commit_hex,
                                     branch,
                                     target_paths,
-                                    self.agentcache_url,
+                                    self.agentgitsmart_url,
                                     self.symbol,
                                     use_real_agent=use_real_agent,
                                     agent_pct=agent_pct,
@@ -317,9 +327,18 @@ class TestRunner:
                                             target_paths,
                                             wd,
                                         )
-                                    elif approach == "agentcache":
+                                    elif approach == "blobless_batch":
                                         raw = await _in_thread(
-                                            self._run_agentcache,
+                                            self._run_blobless_batch,
+                                            repo_url,
+                                            commit_hex,
+                                            branch,
+                                            target_paths,
+                                            wd,
+                                        )
+                                    elif approach == "agentgitsmart":
+                                        raw = await _in_thread(
+                                            self._run_agentgitsmart,
                                             repo_url,
                                             commit_hex,
                                             branch,
@@ -336,7 +355,7 @@ class TestRunner:
                                         workspace,
                                         commit_hex,
                                         target_paths,
-                                        self.agentcache_url,
+                                        self.agentgitsmart_url,
                                         self.symbol,
                                     )
                                     raw["agent_task_data"] = agent_data
@@ -421,9 +440,9 @@ class TestRunner:
             vals = [r.get("_proxy", {}).get(key, 0) for r in good]
             return int(sum(vals) / len(vals))
 
-        # Phase breakdown (agentcache only)
+        # Phase breakdown (agentgitsmart only)
         phases = None
-        if approach == "agentcache" and any("phase_clone_s" in r for r in good):
+        if approach == "agentgitsmart" and any("phase_clone_s" in r for r in good):
             phases = PhaseBreakdown(
                 clone_s=avg("phase_clone_s"),
                 resolve_s=avg("phase_resolve_s"),
@@ -459,7 +478,7 @@ class TestRunner:
         if ra_data and isinstance(ra_data, dict):
             try:
                 real_agent = RealAgentMetrics(
-                    agentcache_detected=ra_data.get("agentcache_detected", False),
+                    agentgitsmart_detected=ra_data.get("agentgitsmart_detected", False),
                     bundle_used=ra_data.get("bundle_used", False),
                     files_found=ra_data.get("files_found", 0),
                     files_selected=ra_data.get("files_selected", 0),

@@ -6,10 +6,10 @@
     {
       "repo": "codex",
       "fingerprint_before": {
-        "refs/agent-cache/2dec46e30ae81aa4844cc7a5474ff5c95c6998c0": "6e9b9d2638a0a9910e9b70ed171129a3527734a3"
+        "refs/agent-git-smart/2dec46e30ae81aa4844cc7a5474ff5c95c6998c0": "6e9b9d2638a0a9910e9b70ed171129a3527734a3"
       },
       "fingerprint_after": {
-        "refs/agent-cache/2dec46e30ae81aa4844cc7a5474ff5c95c6998c0": "6e9b9d2638a0a9910e9b70ed171129a3527734a3"
+        "refs/agent-git-smart/2dec46e30ae81aa4844cc7a5474ff5c95c6998c0": "6e9b9d2638a0a9910e9b70ed171129a3527734a3"
       },
       "tainted": false,
       "aware_rebuilt_after": false,
@@ -17,7 +17,7 @@
       "runs": {
         "build": {
           "repo": "codex",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 1,
           "seed": 2000,
           "cache_existed_before": false,
@@ -31,7 +31,7 @@
           "files_selected": 69,
           "files_modified": 41,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 722.1,
           "phase_discover_ms": 527.0,
@@ -42,7 +42,7 @@
         },
         "warm_before": {
           "repo": "codex",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 2,
           "seed": 2001,
           "cache_existed_before": true,
@@ -56,7 +56,7 @@
           "files_selected": 69,
           "files_modified": 46,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 671.7,
           "phase_discover_ms": 23.8,
@@ -81,7 +81,7 @@
           "files_selected": 67,
           "files_modified": 46,
           "fetch_roundtrips": 0,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 1300.5,
           "phase_discover_ms": 38.0,
@@ -106,7 +106,7 @@
           "files_selected": 69,
           "files_modified": 46,
           "fetch_roundtrips": 69,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 195.1,
           "phase_discover_ms": 4.5,
@@ -117,7 +117,7 @@
         },
         "warm_after": {
           "repo": "codex",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 5,
           "seed": 2001,
           "cache_existed_before": true,
@@ -131,7 +131,7 @@
           "files_selected": 69,
           "files_modified": 46,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 654.5,
           "phase_discover_ms": 17.9,
@@ -145,10 +145,10 @@
     {
       "repo": "prettier",
       "fingerprint_before": {
-        "refs/agent-cache/063a29c6569294a63bc47b847287595fa12bbc2e": "dfaa21ebc7ca73f7a16724b20b16e395a3251fe3"
+        "refs/agent-git-smart/063a29c6569294a63bc47b847287595fa12bbc2e": "dfaa21ebc7ca73f7a16724b20b16e395a3251fe3"
       },
       "fingerprint_after": {
-        "refs/agent-cache/063a29c6569294a63bc47b847287595fa12bbc2e": "dfaa21ebc7ca73f7a16724b20b16e395a3251fe3"
+        "refs/agent-git-smart/063a29c6569294a63bc47b847287595fa12bbc2e": "dfaa21ebc7ca73f7a16724b20b16e395a3251fe3"
       },
       "tainted": false,
       "aware_rebuilt_after": false,
@@ -156,7 +156,7 @@
       "runs": {
         "build": {
           "repo": "prettier",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 1,
           "seed": 2010,
           "cache_existed_before": false,
@@ -170,7 +170,7 @@
           "files_selected": 122,
           "files_modified": 27,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 659.7,
           "phase_discover_ms": 468.0,
@@ -181,7 +181,7 @@
         },
         "warm_before": {
           "repo": "prettier",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 2,
           "seed": 2011,
           "cache_existed_before": true,
@@ -195,7 +195,7 @@
           "files_selected": 122,
           "files_modified": 30,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 603.4,
           "phase_discover_ms": 29.6,
@@ -220,7 +220,7 @@
           "files_selected": 122,
           "files_modified": 29,
           "fetch_roundtrips": 0,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 954.8,
           "phase_discover_ms": 94.3,
@@ -245,7 +245,7 @@
           "files_selected": 122,
           "files_modified": 41,
           "fetch_roundtrips": 122,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 201.4,
           "phase_discover_ms": 8.9,
@@ -256,7 +256,7 @@
         },
         "warm_after": {
           "repo": "prettier",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 5,
           "seed": 2011,
           "cache_existed_before": true,
@@ -270,7 +270,7 @@
           "files_selected": 122,
           "files_modified": 30,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 623.1,
           "phase_discover_ms": 31.7,
@@ -284,10 +284,10 @@
     {
       "repo": "git-lfs",
       "fingerprint_before": {
-        "refs/agent-cache/900d597907c44c70632dcd4fd7c93edd4e9bec5d": "5d2d5980341fdfcd71f116770eca5befbff33e76"
+        "refs/agent-git-smart/900d597907c44c70632dcd4fd7c93edd4e9bec5d": "5d2d5980341fdfcd71f116770eca5befbff33e76"
       },
       "fingerprint_after": {
-        "refs/agent-cache/900d597907c44c70632dcd4fd7c93edd4e9bec5d": "5d2d5980341fdfcd71f116770eca5befbff33e76"
+        "refs/agent-git-smart/900d597907c44c70632dcd4fd7c93edd4e9bec5d": "5d2d5980341fdfcd71f116770eca5befbff33e76"
       },
       "tainted": false,
       "aware_rebuilt_after": false,
@@ -295,7 +295,7 @@
       "runs": {
         "build": {
           "repo": "git-lfs",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 1,
           "seed": 2020,
           "cache_existed_before": false,
@@ -309,7 +309,7 @@
           "files_selected": 8,
           "files_modified": 8,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 278.2,
           "phase_discover_ms": 53.5,
@@ -320,7 +320,7 @@
         },
         "warm_before": {
           "repo": "git-lfs",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 2,
           "seed": 2021,
           "cache_existed_before": true,
@@ -334,7 +334,7 @@
           "files_selected": 8,
           "files_modified": 8,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 289.2,
           "phase_discover_ms": 4.4,
@@ -359,7 +359,7 @@
           "files_selected": 8,
           "files_modified": 8,
           "fetch_roundtrips": 0,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 240.3,
           "phase_discover_ms": 4.7,
@@ -384,7 +384,7 @@
           "files_selected": 8,
           "files_modified": 7,
           "fetch_roundtrips": 8,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 143.3,
           "phase_discover_ms": 1.9,
@@ -395,7 +395,7 @@
         },
         "warm_after": {
           "repo": "git-lfs",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 5,
           "seed": 2021,
           "cache_existed_before": true,
@@ -409,7 +409,7 @@
           "files_selected": 8,
           "files_modified": 8,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 308.6,
           "phase_discover_ms": 3.1,
@@ -423,10 +423,10 @@
     {
       "repo": "jq",
       "fingerprint_before": {
-        "refs/agent-cache/42d4035d4fe8028008c95d4efb0ac4f2a36a5932": "72e389f6d967d23084a2a671b1a08bf3a5fe639f"
+        "refs/agent-git-smart/42d4035d4fe8028008c95d4efb0ac4f2a36a5932": "72e389f6d967d23084a2a671b1a08bf3a5fe639f"
       },
       "fingerprint_after": {
-        "refs/agent-cache/42d4035d4fe8028008c95d4efb0ac4f2a36a5932": "72e389f6d967d23084a2a671b1a08bf3a5fe639f"
+        "refs/agent-git-smart/42d4035d4fe8028008c95d4efb0ac4f2a36a5932": "72e389f6d967d23084a2a671b1a08bf3a5fe639f"
       },
       "tainted": false,
       "aware_rebuilt_after": false,
@@ -434,7 +434,7 @@
       "runs": {
         "build": {
           "repo": "jq",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 1,
           "seed": 2030,
           "cache_existed_before": false,
@@ -448,7 +448,7 @@
           "files_selected": 2,
           "files_modified": 2,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 89.1,
           "phase_discover_ms": 68.7,
@@ -459,7 +459,7 @@
         },
         "warm_before": {
           "repo": "jq",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 2,
           "seed": 2031,
           "cache_existed_before": true,
@@ -473,7 +473,7 @@
           "files_selected": 2,
           "files_modified": 0,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 95.9,
           "phase_discover_ms": 2.1,
@@ -498,7 +498,7 @@
           "files_selected": 2,
           "files_modified": 2,
           "fetch_roundtrips": 0,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 204.7,
           "phase_discover_ms": 1.8,
@@ -523,7 +523,7 @@
           "files_selected": 2,
           "files_modified": 2,
           "fetch_roundtrips": 2,
-          "agentcache_detected": false,
+          "agentgitsmart_detected": false,
           "bundle_used": false,
           "phase_clone_ms": 95.0,
           "phase_discover_ms": 1.9,
@@ -534,7 +534,7 @@
         },
         "warm_after": {
           "repo": "jq",
-          "method": "agentcache",
+          "method": "agentgitsmart",
           "iteration": 5,
           "seed": 2031,
           "cache_existed_before": true,
@@ -548,7 +548,7 @@
           "files_selected": 2,
           "files_modified": 0,
           "fetch_roundtrips": 1,
-          "agentcache_detected": true,
+          "agentgitsmart_detected": true,
           "bundle_used": true,
           "phase_clone_ms": 92.8,
           "phase_discover_ms": 2.6,

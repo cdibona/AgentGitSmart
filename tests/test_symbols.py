@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentcache import symbols as sym
+from agentgitsmart import symbols as sym
 
 
 def test_degrades_gracefully_without_ctags(repo):

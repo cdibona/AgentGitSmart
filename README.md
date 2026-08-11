@@ -1,6 +1,6 @@
-# agentcache
+# agentgitsmart
 
-> **⚠️ Proof of concept.** AgentCache is an experimental prototype for exploring
+> **⚠️ Proof of concept.** AgentGitSmart is an experimental prototype for exploring
 > and measuring server-side per-commit agent caching — not production-hardened
 > software. The included test harness is a *diagnostic* for finding where the
 > approach helps and where it doesn't (on many repos the honest answer is
@@ -9,9 +9,9 @@
 
 **Let AI coding agents work on a huge repo while downloading less than 1% of it.**
 
-agentcache is server-side Git infrastructure. On every push, a `post-receive`
+agentgitsmart is server-side Git infrastructure. On every push, a `post-receive`
 hook pre-computes per-commit *agent knowledge* and stores it as an **orphan
-commit** under `refs/agent-cache/<source-commit-oid>` — out of the main history,
+commit** under `refs/agent-git-smart/<source-commit-oid>` — out of the main history,
 behind the same access control, cheap to fetch in isolation:
 
 - **`manifest.json`** — flat `path → {oid, size, mode}` for the whole tree. Lets
@@ -36,25 +36,25 @@ editing 2% of a repo pulls **17×–10,000× less** over the network than a norm
 
 ### If you are human
 
-**Is AgentCache right for your repo?** Run this in your repository's root. It
-measures your repo (naive vs blobless vs agentcache) and **— if AgentCache would
+**Is AgentGitSmart right for your repo?** Run this in your repository's root. It
+measures your repo (naive vs blobless vs agentgitsmart) and **— if AgentGitSmart would
 actually help — offers to set it up for you**. If it wouldn't, it says so and
 stops:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | bash
 ```
 
 > **⚠️ While this repo is private, the `curl` above returns 404** —
 > `raw.githubusercontent.com` won't serve a private repo without a token. Until
-> it goes public, clone AgentCache once and run the same script directly against
+> it goes public, clone AgentGitSmart once and run the same script directly against
 > your repo (this does exactly what the one-liner would):
 >
 > ```bash
 > # one-time: get the tooling (use SSH or a token since the repo is private)
-> git clone https://github.com/cdibona/AgentCache ~/AgentCache
+> git clone https://github.com/cdibona/AgentGitSmart ~/AgentGitSmart
 > # then, from YOUR repo's root, simulate the curl one-liner:
-> bash ~/AgentCache/scripts/try.sh "$PWD"
+> bash ~/AgentGitSmart/scripts/try.sh "$PWD"
 > ```
 >
 > (`try.sh` self-bootstraps a throwaway venv and measures the repo you point it
@@ -71,25 +71,25 @@ Prefer to let your coding agent drive instead? Tell it (Claude Code, Codex CLI,
 Amplifier, Gemini CLI, Cursor, …):
 
 ```
-Read https://raw.githubusercontent.com/cdibona/AgentCache/main/README.md. Follow the instructions there.
+Read https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/README.md. Follow the instructions there.
 ```
 *(If the repo already has an `AGENTS.md`, just say: "Read AGENTS.md — this repo
-uses agentcache.")*
+uses agentgitsmart.")*
 
 ### If you've been sent here by your human
 
-You're an AI agent about to work on a repo that uses (or should use) agentcache.
+You're an AI agent about to work on a repo that uses (or should use) agentgitsmart.
 **Use this instead of a clone — a full or shallow `git clone` defeats the entire
 point.** Two steps: set it up if needed, then work the repo.
 
-**Step 1 — Is agentcache already set up here?** Check the repo root:
+**Step 1 — Is agentgitsmart already set up here?** Check the repo root:
 
 ```bash
-grep -s service_url .agentcache    # prints a URL → already set up, skip to Step 2
+grep -s service_url .agentgitsmart    # prints a URL → already set up, skip to Step 2
 ```
 
 If it's already set up, go straight to Step 2. **If this is the first time**
-(no `.agentcache`, no `AGENTS.md`), set it up once — you only do this per project:
+(no `.agentgitsmart`, no `AGENTS.md`), set it up once — you only do this per project:
 
 - **Self-hosted Git server** — install the hook + query service:
   ```bash
@@ -97,26 +97,26 @@ If it's already set up, go straight to Step 2. **If this is the first time**
   chmod +x /srv/git/myrepo.git/hooks/post-receive
   git --git-dir=/srv/git/myrepo.git config uploadpack.allowFilter true
   git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
-  AGENTCACHE_REPO_DIR=/srv/git/myrepo.git python -m agentcache.service
+  AGENTGITSMART_REPO_DIR=/srv/git/myrepo.git python -m agentgitsmart.service
   ```
 - **GitHub** — server hooks don't run; use the CI workflow instead (see
-  [This repo dogfoods agentcache](docs/INSTALL.md#this-repo-dogfoods-agentcache)).
+  [This repo dogfoods agentgitsmart](docs/INSTALL.md#this-repo-dogfoods-agentgitsmart)).
 - **Make it discoverable** so the next agent skips Step 1 — drop `AGENTS.md` and
-  `.agentcache` in the repo root (`cp docs/ADOPTER_AGENTS_TEMPLATE.md AGENTS.md`,
+  `.agentgitsmart` in the repo root (`cp docs/ADOPTER_AGENTS_TEMPLATE.md AGENTS.md`,
   then fill in the placeholders; see
   [Making your repo agent-aware](docs/INSTALL.md#making-your-repo-agent-aware)).
 
 From then on every push keeps the cache current — including pushes from teammates
-who've never heard of agentcache (the hook runs server-side).
+who've never heard of agentgitsmart (the hook runs server-side).
 
 **Step 2 — Work the repo.** Cold-start instead of cloning, fetching only the
 blobs you'll actually read:
 
 ```bash
-# 0. Discover the service. A AgentCache-enabled repo advertises it in one of:
-#      .agentcache        →  grep service_url .agentcache
+# 0. Discover the service. A AgentGitSmart-enabled repo advertises it in one of:
+#      .agentgitsmart        →  grep service_url .agentgitsmart
 #      AGENTS.md          →  the cold-start protocol + service URL
-#    SVC = the agentcache service URL,  REPO_URL = the git remote,  COMMIT = HEAD
+#    SVC = the agentgitsmart service URL,  REPO_URL = the git remote,  COMMIT = HEAD
 
 # 1. Blobless clone, seeded from the CDN bundle (NOT a direct clone of the bundle).
 #    You get full history + every tree, but ZERO file content yet.
@@ -142,17 +142,17 @@ fetch a giant asset blind; the symbol index replaces repo-wide grep; and the
 single batched fetch is the biggest lever, because lazy promisor fetches
 otherwise happen **one object at a time**.
 
-Finally, read the repo's `AGENTS.md` so you can explain agentcache to your human.
+Finally, read the repo's `AGENTS.md` so you can explain agentgitsmart to your human.
 
 ---
 
-## Dive deeper into AgentCache
+## Dive deeper into AgentGitSmart
 
 | Topic | Read |
 |---|---|
 | Install & adopt (server hook, GitHub Action, agent-aware setup) | [docs/INSTALL.md](docs/INSTALL.md) |
 | How it works (architecture, delta indexing, loop-safety, guarantees, limits) | [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) |
-| Blobless vs AgentCache — and whether you even need it | [docs/BLOBLESS.md](docs/BLOBLESS.md) |
+| Blobless vs AgentGitSmart — and whether you even need it | [docs/BLOBLESS.md](docs/BLOBLESS.md) |
 | Testing, results & the harness (measure your repo, experiment digest) | [docs/TESTING.md](docs/TESTING.md) |
 
 Latest measured numbers from this installation:

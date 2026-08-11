@@ -1,16 +1,16 @@
-"""Experiment harness: headless orchestration for the three agentcache studies.
+"""Experiment harness: headless orchestration for the three agentgitsmart studies.
 
 Reuses the proven test-harness infrastructure (byte-counting proxy, git daemon,
-agentcache service) and the real-agent task, but drives them in batch from
+agentgitsmart service) and the real-agent task, but drives them in batch from
 plain async code instead of the web UI.
 
 A single ExperimentHarness owns:
   - one GitDaemon serving benchmark/repos/
   - one ByteCountingProxy in front of it (so we can measure per-run bytes)
-  - one AgentCacheService that we point at whichever repo is under test
+  - one AgentGitSmartService that we point at whichever repo is under test
 
 and exposes the primitives the experiments need:
-  - clear_cache(repo)        -> wipe refs/agent-cache/* (start from nothing)
+  - clear_cache(repo)        -> wipe refs/agent-git-smart/* (start from nothing)
   - cache_ref_count(repo)    -> how many cache refs exist right now
   - run_agent(repo, method)  -> run one agent task, measured (bytes, timing, cache state)
   - install_hook / push_commit -> for the hook-update study
@@ -29,19 +29,19 @@ from typing import Any, Dict, Optional
 
 import pygit2
 
-# Make the sibling testharness + agentcache packages importable.
+# Make the sibling testharness + agentgitsmart packages importable.
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from testharness.proxy import ByteCountingProxy  # noqa: E402
-from testharness.processes import GitDaemon, AgentCacheService  # noqa: E402
+from testharness.processes import GitDaemon, AgentGitSmartService  # noqa: E402
 from testharness.real_agent import run_real_agent  # noqa: E402
-from agentcache import uninstall as uninstall_mod  # noqa: E402
-from agentcache import cache_writer  # noqa: E402
+from agentgitsmart import uninstall as uninstall_mod  # noqa: E402
+from agentgitsmart import cache_writer  # noqa: E402
 
 REPOS_DIR = str(_ROOT / "benchmark" / "repos")
-REF_PREFIX = "refs/agent-cache"
+REF_PREFIX = "refs/agent-git-smart"
 
 
 def discover_repos(repos_dir: str = REPOS_DIR) -> list[str]:
@@ -65,7 +65,7 @@ class RunResult:
     """One agent run, fully measured."""
 
     repo: str
-    method: str  # naive | blobless | agentcache
+    method: str  # naive | blobless | blobless_batch | agentgitsmart
     iteration: int
     seed: int
     # cache state observed around this run
@@ -82,7 +82,7 @@ class RunResult:
     files_selected: int = 0
     files_modified: int = 0
     fetch_roundtrips: int = 0
-    agentcache_detected: bool = False
+    agentgitsmart_detected: bool = False
     bundle_used: bool = False
     phase_clone_ms: float = 0.0
     phase_discover_ms: float = 0.0
@@ -110,7 +110,7 @@ class ExperimentHarness:
         self.repos_dir = repos_dir
         self.daemon = GitDaemon(repos_dir, port=git_port)
         self.proxy = ByteCountingProxy("127.0.0.1", proxy_port, "127.0.0.1", git_port)
-        self.service = AgentCacheService(port=svc_port)
+        self.service = AgentGitSmartService(port=svc_port)
 
     # ── lifecycle ──────────────────────────────────────────────────────
     async def start(self) -> None:
@@ -169,14 +169,14 @@ class ExperimentHarness:
         return f"{REF_PREFIX}/{commit}" in r.references
 
     def clear_cache(self, repo: str, *, gc: bool = False) -> int:
-        """Erase all agentcache refs for *repo*. Returns count removed."""
+        """Erase all agentgitsmart refs for *repo*. Returns count removed."""
         summary = uninstall_mod.erase(
             self.repo_dir(repo), ref_prefix=REF_PREFIX, gc=gc, dry_run=False
         )
         return summary["cache_ref_count"]
 
     async def use_repo(self, repo: str) -> bool:
-        """Point the agentcache service at *repo* (restart if needed)."""
+        """Point the agentgitsmart service at *repo* (restart if needed)."""
         return await self.service.switch_repo(self.repo_dir(repo))
 
     # ── the measured run ───────────────────────────────────────────────
@@ -186,8 +186,8 @@ class ExperimentHarness:
         commit = self.head_commit(repo)
         branch = self.default_branch(repo)
 
-        # agentcache method needs the service pointed at this repo
-        if method == "agentcache":
+        # agentgitsmart method needs the service pointed at this repo
+        if method == "agentgitsmart":
             await self.use_repo(repo)
 
         existed_before = self.cache_ref_for(repo, commit)
@@ -229,7 +229,7 @@ class ExperimentHarness:
             files_selected=result.get("files_selected", 0),
             files_modified=result.get("files_modified", 0),
             fetch_roundtrips=result.get("fetch_roundtrips", 0),
-            agentcache_detected=result.get("agentcache_detected", False),
+            agentgitsmart_detected=result.get("agentgitsmart_detected", False),
             bundle_used=result.get("bundle_used", False),
             phase_clone_ms=result.get("phase_clone_ms", 0.0),
             phase_discover_ms=result.get("phase_discover_ms", 0.0),
@@ -260,7 +260,7 @@ def load_report_for(
 ) -> Dict[str, Any]:
     """Read the ``generation`` block from the cached ``meta.json`` for *commit*.
 
-    Returns the ``generation`` dict written by :func:`~agentcache.hook.generate_for_commit`.
+    Returns the ``generation`` dict written by :func:`~agentgitsmart.hook.generate_for_commit`.
     Raises :exc:`KeyError` if no cache exists for *commit*.
     """
     if isinstance(repo, str):

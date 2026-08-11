@@ -1,9 +1,10 @@
-/* AgentCache Test Harness — Alpine.js frontend */
+/* AgentGitSmart Test Harness — Alpine.js frontend */
 
 const APPROACH_COLORS = {
-  naive:      { bg: '#3b82f6', border: '#1d4ed8' },
-  blobless:   { bg: '#f97316', border: '#c2410c' },
-  agentcache: { bg: '#22c55e', border: '#15803d' },
+  naive:          { bg: '#3b82f6', border: '#1d4ed8' },
+  blobless:       { bg: '#f97316', border: '#c2410c' },
+  blobless_batch: { bg: '#eab308', border: '#a16207' },
+  agentgitsmart:     { bg: '#22c55e', border: '#15803d' },
 };
 
 const FMT = {
@@ -33,7 +34,7 @@ function app() {
     // ── state ────────────────────────────────────────────────────────────
     view: 'dashboard',
     status: { git_daemon: false, git_daemon_port: 9418, proxy: false, proxy_port: 9419,
-               agentcache_service: false, agentcache_port: 8765, repos: [],
+               agentgitsmart_service: false, agentgitsmart_port: 8765, repos: [],
                docker_available: false },
     dbStats: {},
     recentRuns: [],
@@ -47,7 +48,7 @@ function app() {
     // ── comprehensive experiments ──────────────────────────────────────
     exp: {
       repos: [],
-      methods: ['naive', 'blobless', 'agentcache'],
+      methods: ['naive', 'blobless', 'blobless_batch', 'agentgitsmart'],
       passes: 3,
       pct: 2.0,
       seed: 1000,
@@ -98,7 +99,7 @@ function app() {
       repo_name: 'cpython.git',
       branch: 'main',
       target_paths_text: 'Lib/asyncio/tasks.py\nLib/asyncio/base_events.py\nLib/ast.py',
-      approaches: ['naive', 'blobless', 'agentcache'],
+      approaches: ['naive', 'blobless', 'agentgitsmart'],
       num_runs: 3,
       use_docker: true,
       latency_ms: 0,
@@ -332,7 +333,7 @@ function app() {
         });
       }
 
-      // Chart 2: agentcache cold vs warm, grouped by repo.
+      // Chart 2: agentgitsmart cold vs warm, grouped by repo.
       const ctxCW = document.getElementById('expChartColdWarm');
       if (ctxCW) {
         this._expChartColdWarm = new Chart(ctxCW, {
@@ -340,10 +341,10 @@ function app() {
           data: {
             labels: repos,
             datasets: [
-              { label: 'cold (1st run)', data: campaigns.map(c => c.summary.agentcache?.cold_bytes || 0),
+              { label: 'cold (1st run)', data: campaigns.map(c => c.summary.agentgitsmart?.cold_bytes || 0),
                 backgroundColor: '#64748bcc', borderColor: '#475569', borderWidth: 1, borderRadius: 3 },
-              { label: 'warm (avg)', data: campaigns.map(c => c.summary.agentcache?.warm_avg_bytes || 0),
-                backgroundColor: APPROACH_COLORS.agentcache.bg + 'cc', borderColor: APPROACH_COLORS.agentcache.border, borderWidth: 1, borderRadius: 3 },
+              { label: 'warm (avg)', data: campaigns.map(c => c.summary.agentgitsmart?.warm_avg_bytes || 0),
+                backgroundColor: APPROACH_COLORS.agentgitsmart.bg + 'cc', borderColor: APPROACH_COLORS.agentgitsmart.border, borderWidth: 1, borderRadius: 3 },
             ],
           },
           options: logOpts('bytes'),
@@ -373,7 +374,7 @@ function app() {
         borderColor: (APPROACH_COLORS[m] || APPROACH_COLORS.naive).border,
         backgroundColor: (APPROACH_COLORS[m] || APPROACH_COLORS.naive).bg + '33',
         pointRadius: 4, pointBackgroundColor: agentPasses.map(p =>
-          (m === 'agentcache' && p.cells?.[m]?.cold) ? '#f59e0b' : (APPROACH_COLORS[m] || APPROACH_COLORS.naive).bg),
+          (m === 'agentgitsmart' && p.cells?.[m]?.cold) ? '#f59e0b' : (APPROACH_COLORS[m] || APPROACH_COLORS.naive).bg),
         tension: 0.2, fill: false,
       }));
 
@@ -587,7 +588,7 @@ function app() {
     _computeSavings(results) {
       if (!results || results.length < 2) return;
       const naive = results.find(r => r.approach === 'naive');
-      const ac    = results.find(r => r.approach === 'agentcache');
+      const ac    = results.find(r => r.approach === 'agentgitsmart');
       if (!naive || !ac) { this.savings = null; return; }
       this.savings = {
         time_pct: naive.elapsed_s > 0
@@ -609,7 +610,7 @@ function app() {
     },
 
     phaseResult() {
-      return this.currentRun?.results?.find(r => r.approach === 'agentcache' && r.phases);
+      return this.currentRun?.results?.find(r => r.approach === 'agentgitsmart' && r.phases);
     },
 
     fmtS(v) { return FMT.seconds(v ?? 0); },
@@ -883,12 +884,12 @@ function app() {
     },
 
     approachChip(a) {
-      const map = { naive:'chip-naive', blobless:'chip-blobless', agentcache:'chip-agentcache' };
+      const map = { naive:'chip-naive', blobless:'chip-blobless', blobless_batch:'chip-blobless', agentgitsmart:'chip-agentgitsmart' };
       return map[a] || '';
     },
 
     approachHeaderColor(a) {
-      const map = { naive:'text-blue-400', blobless:'text-orange-400', agentcache:'text-green-400' };
+      const map = { naive:'text-blue-400', blobless:'text-orange-400', blobless_batch:'text-yellow-400', agentgitsmart:'text-green-400' };
       return map[a] || 'text-gray-300';
     },
 
@@ -983,12 +984,12 @@ function app() {
     Note over VM: Total ${e(elapsed)}ms - roundtrips ${e(trips+1)} - grep CPU ${e(grepCpu)}%`;
       }
 
-      if (result.approach === 'agentcache') {
+      if (result.approach === 'agentgitsmart') {
         return `sequenceDiagram
     participant VM as Agent VM (Docker)
     participant P as Proxy :9419
     participant G as Git Daemon :9418
-    participant S as AgentCache :8765
+    participant S as AgentGitSmart :8765
     Note over VM: Fresh container, empty filesystem
     rect rgb(10,40,20)
     Note over VM,G: Phase 1 - git clone --filter=blob:none, full history (${e(cloneMs)}ms)
@@ -1003,7 +1004,7 @@ function app() {
     Note over VM: Full history on disk: git log, blame, diff all work
     end
     rect rgb(10,40,60)
-    Note over VM,S: Phase 2 - Symbol lookup via AgentCache service (${e(symMs)}ms)
+    Note over VM,S: Phase 2 - Symbol lookup via AgentGitSmart service (${e(symMs)}ms)
     VM->>S: GET /cache/commit/symbol/ClassDef [HTTP, does NOT go through proxy]
     Note over S: Reads pre-computed symbol index from orphaned cache commit
     S-->>VM: JSON - locations with paths, lines, kinds, OIDs [${e(symMs)}ms, 0 bytes via proxy]
@@ -1057,9 +1058,9 @@ function app() {
       return `${Math.floor(secs / 60)}m ${secs % 60}s`;
     },
 
-    // agentcache cold ÷ blobless cold ratio — "—" when either value is absent.
+    // agentgitsmart cold ÷ blobless cold ratio — "—" when either value is absent.
     expColdRatio(campaign) {
-      const ac = campaign?.summary?.agentcache?.cold_bytes;
+      const ac = campaign?.summary?.agentgitsmart?.cold_bytes;
       const bl = campaign?.summary?.blobless?.cold_bytes;
       if (ac == null || !bl) return '—';
       return (ac / bl).toFixed(2) + '×';

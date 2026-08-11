@@ -14,8 +14,8 @@ if PACK_ROOT not in sys.path:
     sys.path.insert(0, PACK_ROOT)
 
 # These imports work because PYTHONPATH=/pack and the modules are stdlib-only
-from benchmark.approaches import naive, blobless  # noqa: E402
-from benchmark.approaches import agentcache as ac_approach  # noqa: E402
+from benchmark.approaches import naive, blobless, blobless_batch  # noqa: E402
+from benchmark.approaches import agentgitsmart as ac_approach  # noqa: E402
 from testharness.agent_task import run_agent_task  # noqa: E402
 
 _SENTINEL_START = "__PACK_RESULT__"
@@ -43,7 +43,9 @@ def main() -> int:
             clone = naive.run(args.repo_url, args.branch, targets, work_dir)
         elif approach == "blobless":
             clone = blobless.run(args.repo_url, args.commit, args.branch, targets, work_dir)
-        elif approach == "agentcache":
+        elif approach == "blobless_batch":
+            clone = blobless_batch.run(args.repo_url, args.commit, args.branch, targets, work_dir)
+        elif approach == "agentgitsmart":
             clone = ac_approach.run(args.repo_url, args.commit, args.branch,
                                      args.service_url, targets, work_dir)
         else:

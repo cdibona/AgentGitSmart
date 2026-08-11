@@ -1,4 +1,4 @@
-"""Tests for scripts/assess_repo.py — "is agentcache worth it for my repo?" analyzer.
+"""Tests for scripts/assess_repo.py — "is agentgitsmart worth it for my repo?" analyzer.
 
 These tests are CALIBRATED against the real 15-repo harness experiment
 (testharness/data/experiments/6d89556c.json), whose measured verdicts come
@@ -6,13 +6,13 @@ from proxy-measured bytes — NOT from repo shape.  The fixtures below use the
 ACTUAL static signals measured by gather_signals() on benchmark/repos/*.git.
 
 Ground-truth measured verdicts (from render_experiment_report.suitability_verdict):
-  agentcache worthwhile : anthropic-cookbook, anthropic-sdk-python, prettier
+  agentgitsmart worthwhile : anthropic-cookbook, anthropic-sdk-python, prettier
   blobless is enough    : fd, cpython, git, git-lfs
   worth it only at high reuse : ripgrep, bat, codex, django, go, redis, jq, ohmyzsh
 
 The predictor is deliberately CONSERVATIVE (asymmetric safety: a false "adopt"
 is worse than a false "skip").  The HARD constraint these tests lock in is:
-predict_suitability NEVER returns "agentcache worthwhile" for a repo the harness
+predict_suitability NEVER returns "agentgitsmart worthwhile" for a repo the harness
 measured as "blobless is enough" (cpython, git, fd, git-lfs).
 
 Coverage:
@@ -38,7 +38,7 @@ from scripts.assess_repo import gather_signals, main, predict_suitability
 # Label constants — must match predict_suitability return values exactly
 # ---------------------------------------------------------------------------
 _BLOBLESS = "blobless is enough"
-_WORTHWHILE = "agentcache worthwhile"
+_WORTHWHILE = "agentgitsmart worthwhile"
 _INCONCLUSIVE = "inconclusive — measure to be sure"
 
 # Every label the STATIC predictor can emit.
@@ -52,7 +52,7 @@ _PREDICTOR_LABELS = {_BLOBLESS, _WORTHWHILE, _INCONCLUSIVE}
 #         source_file_count, history_depth
 # ---------------------------------------------------------------------------
 CALIBRATION: dict[str, dict] = {
-    # measured: agentcache worthwhile — the clear, cookbook-like extreme
+    # measured: agentgitsmart worthwhile — the clear, cookbook-like extreme
     "anthropic-cookbook": dict(
         file_count=574,
         total_bytes=208_460_094,
@@ -63,7 +63,7 @@ CALIBRATION: dict[str, dict] = {
         measured=_WORTHWHILE,
         expected=_WORTHWHILE,  # asset 98.8%, nonsource 90.0% → clears both gates
     ),
-    # measured: agentcache worthwhile — but statically LEAN (0.6% non-source);
+    # measured: agentgitsmart worthwhile — but statically LEAN (0.6% non-source);
     # static signals genuinely cannot see the win → safe UNDER-promise to blobless
     "prettier": dict(
         file_count=9373,
@@ -206,7 +206,7 @@ class TestCalibration:
         assert result["predicted"] is True
 
     def test_cookbook_is_worthwhile_the_clear_extreme(self) -> None:
-        """anthropic-cookbook (asset 98.8%, nonsource 90%) → agentcache worthwhile."""
+        """anthropic-cookbook (asset 98.8%, nonsource 90%) → agentgitsmart worthwhile."""
         result = _predict("anthropic-cookbook")
         assert result["label"] == _WORTHWHILE
         assert result["confidence"] == "high"
@@ -229,7 +229,7 @@ class TestSafetyConstraint:
 
     @pytest.mark.parametrize("name", _BLOBLESS_FIXTURES)
     def test_no_dangerous_false_positive(self, name: str) -> None:
-        """predict_suitability must NEVER say 'agentcache worthwhile' for a repo
+        """predict_suitability must NEVER say 'agentgitsmart worthwhile' for a repo
         the harness measured as 'blobless is enough' (cpython, git, fd, git-lfs).
 
         This is the single most important guarantee of the tool: a false 'adopt'
@@ -589,8 +589,8 @@ class TestCLI:
         out = capsys.readouterr().out.lower()
         assert any(kw in out for kw in ("file", "bytes", "size", "asset"))
 
-    def test_agentcache_repo_itself(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Smoke test: run the analyzer against the AgentCache repo itself."""
+    def test_agentgitsmart_repo_itself(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Smoke test: run the analyzer against the AgentGitSmart repo itself."""
         repo_root = Path(__file__).parent.parent
         main([str(repo_root)])
         captured = capsys.readouterr()

@@ -1,6 +1,6 @@
-# AgentCache experiment diagnostic
+# AgentGitSmart experiment diagnostic
 
-This is a **diagnostic report for maintainers**, not a marketing document. Its purpose is to surface both where agentcache helps AND where it falls short vs naive and blobless, so that weak spots can be found and fixed. Data comes from real runs of the [test harness](../testharness/) measuring three git-fetch strategies — **naive** (full clone), **blobless** (`--filter=blob:none`), and **agentcache** (targeted blob fetch via the pre-built manifest + symbol cache). Each experiment runs multiple agent passes per repo: **pass 1 is COLD** (agentcache downloads its bootstrap bundle and builds its cache from scratch), and **later passes are WARM** (only the requested blobs are fetched). **Column caveat:** the agentcache cold column delivers *full history* (full-history blobless clone, no depth limit); the blobless column uses `--depth=1` (shallow, no history) — the two cold columns are not directly comparable on a bytes basis. **Framing:** naive is the easy strawman; the real test is agentcache vs blobless. agentcache carries two costs that blobless does not: (1) a large COLD bootstrap bundle whose size scales with repo history depth, and (2) a per-commit server-side warm overhead on every human push. Both costs are exposed in detail below.
+This is a **diagnostic report for maintainers**, not a marketing document. Its purpose is to surface both where agentgitsmart helps AND where it falls short vs naive and blobless, so that weak spots can be found and fixed. Data comes from real runs of the [test harness](../testharness/) measuring three git-fetch strategies — **naive** (full clone), **blobless** (`--filter=blob:none`), and **agentgitsmart** (targeted blob fetch via the pre-built manifest + symbol cache). Each experiment runs multiple agent passes per repo: **pass 1 is COLD** (agentgitsmart downloads its bootstrap bundle and builds its cache from scratch), and **later passes are WARM** (only the requested blobs are fetched). **Column caveat:** the agentgitsmart cold column delivers *full history* (full-history blobless clone, no depth limit); the blobless column uses `--depth=1` (shallow, no history) — the two cold columns are not directly comparable on a bytes basis. **Framing:** naive is the easy strawman; the real test is agentgitsmart vs blobless. agentgitsmart carries two costs that blobless does not: (1) a large COLD bootstrap bundle whose size scales with repo history depth, and (2) a per-commit server-side warm overhead on every human push. Both costs are exposed in detail below.
 
 Regenerate with: `python scripts/render_experiment_report.py`
 
@@ -8,19 +8,19 @@ See also the headless studies: [SUMMARY.md](results/SUMMARY.md) · [exp1 (cold v
 
 ---
 
-## Where agentcache has holes (improvement targets)
+## Where agentgitsmart has holes (improvement targets)
 
 The entries below are engineering improvement targets, not edge-cases. Data is aggregated across all featured experiments; repos appearing in multiple runs are de-duplicated (worst value kept).
 
 ### 1. Full-history cold cost (read the caveat — this is NOT a clean defect)
 
-The table shows agentcache's cold-start bytes ÷ blobless's. **Two measurement artifacts inflate this ratio — do not read it as pure overhead:**
-1. **Full-history vs shallow.** agentcache's cold pass is a *full-history* blobless clone — it delivers complete history (agentcache's core promise). The blobless column is a `--depth=1` *shallow* clone with no history. This compares two different products.
+The table shows agentgitsmart's cold-start bytes ÷ blobless's. **Two measurement artifacts inflate this ratio — do not read it as pure overhead:**
+1. **Full-history vs shallow.** agentgitsmart's cold pass is a *full-history* blobless clone — it delivers complete history (agentgitsmart's core promise). The blobless column is a `--depth=1` *shallow* clone with no history. This compares two different products.
 2. **Un-amortized vs CDN-cached.** This is one cold agent paying the full first-visit cost. In production the bootstrap bundle is built once per commit and served as an immutable CDN-cached file reused by every agent on that commit — a per-commit cost, not per-agent.
 
-**The genuine, narrower signal:** on deep-history repos the full-history payload (commits+trees) is large, and the per-commit bundle *artifact* scales with history. The real improvement target is a **base bundle + thin per-commit incremental** (chained via `--bundle-uri`), which shrinks the per-commit artifact from O(history) to O(delta) *without* losing full history. Also: the harness should measure the production-realistic cold-WITH-bundle / per-commit-amortized cost (today it hardwires cold⇒no-bundle), and an apples-to-apples arm (agentcache vs *full-history* blobless, not depth-1).
+**The genuine, narrower signal:** on deep-history repos the full-history payload (commits+trees) is large, and the per-commit bundle *artifact* scales with history. The real improvement target is a **base bundle + thin per-commit incremental** (chained via `--bundle-uri`), which shrinks the per-commit artifact from O(history) to O(delta) *without* losing full history. Also: the harness should measure the production-realistic cold-WITH-bundle / per-commit-amortized cost (today it hardwires cold⇒no-bundle), and an apples-to-apples arm (agentgitsmart vs *full-history* blobless, not depth-1).
 
-| Repo | agentcache cold (full history) | blobless cold (depth-1 shallow) | ratio (agentcache ÷ blobless) |
+| Repo | agentgitsmart cold (full history) | blobless cold (depth-1 shallow) | ratio (agentgitsmart ÷ blobless) |
 |------|-------------------------------:|--------------------------------:|------------------------------:|
 | git.git | 105.6 MiB | 440.8 KiB | 245× |
 | cpython.git | 116.5 MiB | 699.6 KiB | 171× |
@@ -42,20 +42,20 @@ The table shows agentcache's cold-start bytes ÷ blobless's. **Two measurement a
 
 ### 2. Marginal warm win (< 25% saving vs blobless)
 
-Repos where agentcache's warm-pass byte saving over blobless is small. The vs-naive win is large, but that is the easy case; if blobless already fetches only a few blobs, agentcache adds little.
+Repos where agentgitsmart's warm-pass byte saving over blobless is small. The vs-naive win is large, but that is the easy case; if blobless already fetches only a few blobs, agentgitsmart adds little.
 
-| Repo | blobless warm | agentcache warm | saving vs blobless |
+| Repo | blobless warm | agentgitsmart warm | saving vs blobless |
 |------|-------------:|-----------------:|--------------------:|
 | fd.git | 12.9 KiB | 11.3 KiB | 12.4% |
 | ripgrep.git | 51.5 KiB | 42.6 KiB | 17.4% |
 | codex.git | 968.8 KiB | 745.2 KiB | 23.1% |
 | redis.git | 249.2 KiB | 187.5 KiB | 24.8% |
 
-> **TODO — improve warm selectivity:** On lean repos like **fd.git** the warm saving is only 12.4% vs blobless. Consider skipping or opt-in-only agentcache on repos where the agent's file edit set is small relative to total blobs.
+> **TODO — improve warm selectivity:** On lean repos like **fd.git** the warm saving is only 12.4% vs blobless. Consider skipping or opt-in-only agentgitsmart on repos where the agent's file edit set is small relative to total blobs.
 
 ### 3. Impractical break-even (> 100 warm passes)
 
-Repos where agentcache needs more than 100 warm passes to repay its cold-start overhead vs blobless. In realistic agent workflows this break-even is rarely if ever reached, making blobless the better default for these repos.
+Repos where agentgitsmart needs more than 100 warm passes to repay its cold-start overhead vs blobless. In realistic agent workflows this break-even is rarely if ever reached, making blobless the better default for these repos.
 
 | Repo | break-even passes | cold overhead vs blobless | warm saved/pass |
 |------|------------------:|---------------------------:|----------------:|
@@ -68,7 +68,7 @@ Repos where agentcache needs more than 100 warm passes to repay its cold-start o
 | go.git | 148 | 84.1 MiB | 585.4 KiB |
 | django.git | 108 | 38.6 MiB | 366.7 KiB |
 
-> **TODO — gate on repo heuristics:** 8 repo(s) have break-even > 100 passes (worst: **fd.git** at 715 passes). For these repos, blobless is the practical default. Fix: gate agentcache on a repo-size or history-depth heuristic, or reduce the bundle footprint on shallow histories.
+> **TODO — gate on repo heuristics:** 8 repo(s) have break-even > 100 passes (worst: **fd.git** at 715 passes). For these repos, blobless is the practical default. Fix: gate agentgitsmart on a repo-size or history-depth heuristic, or reduce the bundle footprint on shallow histories.
 
 ### 4. Expensive per-commit warm overhead (hook wall > 1 s)
 
@@ -93,9 +93,9 @@ Every human push triggers a server-side index rebuild that naive and blobless do
 
 Ran 2026-06-26 22:22 UTC → 2026-06-26 22:39 UTC (988s)
 
-> Cache experiment over 15 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git, cpython.git, django.git, fd.git, git-lfs.git, git.git, go.git, jq.git, ohmyzsh.git, prettier.git, redis.git, ripgrep.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentcache; the agent edits 3.0% of source files each pass (seed 4244); 2 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).
+> Cache experiment over 15 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git, cpython.git, django.git, fd.git, git-lfs.git, git.git, go.git, jq.git, ohmyzsh.git, prettier.git, redis.git, ripgrep.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentgitsmart; the agent edits 3.0% of source files each pass (seed 4244); 2 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).
 
-| Repo | files | naive (warm) | blobless (warm) | agentcache (warm) | agentcache cold | win vs naive |
+| Repo | files | naive (warm) | blobless (warm) | agentgitsmart (warm) | agentgitsmart cold | win vs naive |
 |------|------:|-------------:|----------------:|------------------:|----------------:|-------------:|
 | anthropic-cookbook.git | 574 | 153.3 MiB | 49.3 KiB | 22.0 KiB | 559.0 KiB | 7145.4× |
 | anthropic-sdk-python.git | 1189 | 1.1 MiB | 94.3 KiB | 46.0 KiB | 867.4 KiB | 24.2× |
@@ -115,9 +115,9 @@ Ran 2026-06-26 22:22 UTC → 2026-06-26 22:39 UTC (988s)
 
 ### Cold start across the three approaches
 
-> **Column caveat:** agentcache cold = full-history blobless clone; blobless cold = `--depth=1` shallow clone (no history). These columns are not directly comparable on a bytes basis.
+> **Column caveat:** agentgitsmart cold = full-history blobless clone; blobless cold = `--depth=1` shallow clone (no history). These columns are not directly comparable on a bytes basis.
 
-| Repo | naive cold | blobless cold (depth-1 shallow) | agentcache cold (full history) | agentcache cold ÷ blobless |
+| Repo | naive cold | blobless cold (depth-1 shallow) | agentgitsmart cold (full history) | agentgitsmart cold ÷ blobless |
 |------|----------:|-------------:|----------------:|---------------------------:|
 | anthropic-cookbook.git | 153.3 MiB | 45.6 KiB | 559.0 KiB | 12× |
 | anthropic-sdk-python.git | 1.1 MiB | 107.2 KiB | 867.4 KiB | 8× |
@@ -139,23 +139,23 @@ Ran 2026-06-26 22:22 UTC → 2026-06-26 22:39 UTC (988s)
 
 | Repo | warm saved/pass vs blobless | warm vs naive | cold overhead vs blobless | break-even (warm passes) | verdict | Recommendation |
 |------|----------------------------:|:--------------:|---------------------------:|:------------------------:|:--------|:---------------|
-| anthropic-cookbook.git | 27.4 KiB (55.5%) | 7145.4× | 513.3 KiB | 19 | break-even vs blobless: ~19 warm passes (513.3 KiB ÷ 27.4 KiB/pass) | agentcache worthwhile |
-| anthropic-sdk-python.git | 48.3 KiB (51.2%) | 24.2× | 760.2 KiB | 16 | break-even vs blobless: ~16 warm passes (760.2 KiB ÷ 48.3 KiB/pass) | agentcache worthwhile |
+| anthropic-cookbook.git | 27.4 KiB (55.5%) | 7145.4× | 513.3 KiB | 19 | break-even vs blobless: ~19 warm passes (513.3 KiB ÷ 27.4 KiB/pass) | agentgitsmart worthwhile |
+| anthropic-sdk-python.git | 48.3 KiB (51.2%) | 24.2× | 760.2 KiB | 16 | break-even vs blobless: ~16 warm passes (760.2 KiB ÷ 48.3 KiB/pass) | agentgitsmart worthwhile |
 | bat.git | 44.6 KiB (80.6%) | 200.7× | 2.3 MiB | 53 | break-even vs blobless: ~53 warm passes (2.3 MiB ÷ 44.6 KiB/pass) | worth it only at high reuse |
 | codex.git | 223.6 KiB (23.1%) | 14.2× | 18.7 MiB | 86 | break-even vs blobless: ~86 warm passes (18.7 MiB ÷ 223.6 KiB/pass) | worth it only at high reuse |
-| cpython.git | 219.4 KiB (26.6%) | 72.6× | 115.8 MiB | 541 | agentcache does NOT repay its cold cost vs blobless within ~541 passes — blobless preferred | blobless is enough |
-| django.git | 366.7 KiB (69.8%) | 77.3× | 38.6 MiB | 108 | agentcache does NOT repay its cold cost vs blobless within ~108 passes — blobless preferred | worth it only at high reuse |
-| fd.git | 1.5 KiB (21.9%) | 26.4× | 1.1 MiB | 715 | agentcache does NOT repay its cold cost vs blobless within ~715 passes — blobless preferred | blobless is enough |
-| git-lfs.git | 29.0 KiB (46.6%) | 26.5× | 5.7 MiB | 203 | agentcache does NOT repay its cold cost vs blobless within ~203 passes — blobless preferred | blobless is enough |
-| git.git | 158.0 KiB (36.6%) | 46.6× | 105.2 MiB | 682 | agentcache does NOT repay its cold cost vs blobless within ~682 passes — blobless preferred | blobless is enough |
-| go.git | 585.4 KiB (45.6%) | 52.9× | 84.1 MiB | 148 | agentcache does NOT repay its cold cost vs blobless within ~148 passes — blobless preferred | worth it only at high reuse |
+| cpython.git | 219.4 KiB (26.6%) | 72.6× | 115.8 MiB | 541 | agentgitsmart does NOT repay its cold cost vs blobless within ~541 passes — blobless preferred | blobless is enough |
+| django.git | 366.7 KiB (69.8%) | 77.3× | 38.6 MiB | 108 | agentgitsmart does NOT repay its cold cost vs blobless within ~108 passes — blobless preferred | worth it only at high reuse |
+| fd.git | 1.5 KiB (21.9%) | 26.4× | 1.1 MiB | 715 | agentgitsmart does NOT repay its cold cost vs blobless within ~715 passes — blobless preferred | blobless is enough |
+| git-lfs.git | 29.0 KiB (46.6%) | 26.5× | 5.7 MiB | 203 | agentgitsmart does NOT repay its cold cost vs blobless within ~203 passes — blobless preferred | blobless is enough |
+| git.git | 158.0 KiB (36.6%) | 46.6× | 105.2 MiB | 682 | agentgitsmart does NOT repay its cold cost vs blobless within ~682 passes — blobless preferred | blobless is enough |
+| go.git | 585.4 KiB (45.6%) | 52.9× | 84.1 MiB | 148 | agentgitsmart does NOT repay its cold cost vs blobless within ~148 passes — blobless preferred | worth it only at high reuse |
 | jq.git | 14.0 KiB (48.4%) | 88.2× | 1.1 MiB | 82 | break-even vs blobless: ~82 warm passes (1.1 MiB ÷ 14.0 KiB/pass) | worth it only at high reuse |
 | ohmyzsh.git | 54.8 KiB (77.1%) | 209.1× | 5.2 MiB | 98 | break-even vs blobless: ~98 warm passes (5.2 MiB ÷ 54.8 KiB/pass) | worth it only at high reuse |
-| prettier.git | 516.2 KiB (90.6%) | 121.7× | 16.1 MiB | 32 | break-even vs blobless: ~32 warm passes (16.1 MiB ÷ 516.2 KiB/pass) | agentcache worthwhile |
-| redis.git | 61.7 KiB (24.8%) | 26.3× | 10.3 MiB | 172 | agentcache does NOT repay its cold cost vs blobless within ~172 passes — blobless preferred | worth it only at high reuse |
-| ripgrep.git | 9.1 KiB (19.8%) | 17.6× | 1.5 MiB | 169 | agentcache does NOT repay its cold cost vs blobless within ~169 passes — blobless preferred | worth it only at high reuse |
+| prettier.git | 516.2 KiB (90.6%) | 121.7× | 16.1 MiB | 32 | break-even vs blobless: ~32 warm passes (16.1 MiB ÷ 516.2 KiB/pass) | agentgitsmart worthwhile |
+| redis.git | 61.7 KiB (24.8%) | 26.3× | 10.3 MiB | 172 | agentgitsmart does NOT repay its cold cost vs blobless within ~172 passes — blobless preferred | worth it only at high reuse |
+| ripgrep.git | 9.1 KiB (19.8%) | 17.6× | 1.5 MiB | 169 | agentgitsmart does NOT repay its cold cost vs blobless within ~169 passes — blobless preferred | worth it only at high reuse |
 
-> **Recommendation:** 15 repo(s) assessed — 3 agentcache worthwhile, 4 blobless-is-enough, 8 high-reuse-only.
+> **Recommendation:** 15 repo(s) assessed — 3 agentgitsmart worthwhile, 4 blobless-is-enough, 8 high-reuse-only.
 
 > Break-even vs blobless ranges from ~16 passes (anthropic-sdk-python) to ~715 passes (fd). 8 repo(s) exceed 100 passes — blobless is the practical default for those.
 
@@ -326,9 +326,9 @@ Every human commit triggers a server-side cache rebuild (CPU + storage) so the n
 
 Ran 2026-06-26 22:12 UTC → 2026-06-26 22:15 UTC (160s)
 
-> Cache experiment over 4 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentcache; the agent edits 2.0% of source files each pass (seed 4244); 1 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).
+> Cache experiment over 4 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentgitsmart; the agent edits 2.0% of source files each pass (seed 4244); 1 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).
 
-| Repo | files | naive (warm) | blobless (warm) | agentcache (warm) | agentcache cold | win vs naive |
+| Repo | files | naive (warm) | blobless (warm) | agentgitsmart (warm) | agentgitsmart cold | win vs naive |
 |------|------:|-------------:|----------------:|------------------:|----------------:|-------------:|
 | anthropic-cookbook.git | 574 | 153.3 MiB | 42.4 KiB | 15.4 KiB | 557.4 KiB | 10201.5× |
 | anthropic-sdk-python.git | 1189 | 1.1 MiB | 77.0 KiB | 32.2 KiB | 858.9 KiB | 34.5× |
@@ -337,9 +337,9 @@ Ran 2026-06-26 22:12 UTC → 2026-06-26 22:15 UTC (160s)
 
 ### Cold start across the three approaches
 
-> **Column caveat:** agentcache cold = full-history blobless clone; blobless cold = `--depth=1` shallow clone (no history). These columns are not directly comparable on a bytes basis.
+> **Column caveat:** agentgitsmart cold = full-history blobless clone; blobless cold = `--depth=1` shallow clone (no history). These columns are not directly comparable on a bytes basis.
 
-| Repo | naive cold | blobless cold (depth-1 shallow) | agentcache cold (full history) | agentcache cold ÷ blobless |
+| Repo | naive cold | blobless cold (depth-1 shallow) | agentgitsmart cold (full history) | agentgitsmart cold ÷ blobless |
 |------|----------:|-------------:|----------------:|---------------------------:|
 | anthropic-cookbook.git | 153.3 MiB | 43.6 KiB | 557.4 KiB | 13× |
 | anthropic-sdk-python.git | 1.1 MiB | 95.8 KiB | 858.9 KiB | 9× |
@@ -350,12 +350,12 @@ Ran 2026-06-26 22:12 UTC → 2026-06-26 22:15 UTC (160s)
 
 | Repo | warm saved/pass vs blobless | warm vs naive | cold overhead vs blobless | break-even (warm passes) | verdict | Recommendation |
 |------|----------------------------:|:--------------:|---------------------------:|:------------------------:|:--------|:---------------|
-| anthropic-cookbook.git | 27.0 KiB (63.7%) | 10201.5× | 513.8 KiB | 20 | break-even vs blobless: ~20 warm passes (513.8 KiB ÷ 27.0 KiB/pass) | agentcache worthwhile |
-| anthropic-sdk-python.git | 44.7 KiB (58.1%) | 34.5× | 763.1 KiB | 18 | break-even vs blobless: ~18 warm passes (763.1 KiB ÷ 44.7 KiB/pass) | agentcache worthwhile |
+| anthropic-cookbook.git | 27.0 KiB (63.7%) | 10201.5× | 513.8 KiB | 20 | break-even vs blobless: ~20 warm passes (513.8 KiB ÷ 27.0 KiB/pass) | agentgitsmart worthwhile |
+| anthropic-sdk-python.git | 44.7 KiB (58.1%) | 34.5× | 763.1 KiB | 18 | break-even vs blobless: ~18 warm passes (763.1 KiB ÷ 44.7 KiB/pass) | agentgitsmart worthwhile |
 | bat.git | 44.2 KiB (82.0%) | 222.1× | 2.3 MiB | 53 | break-even vs blobless: ~53 warm passes (2.3 MiB ÷ 44.2 KiB/pass) | worth it only at high reuse |
 | codex.git | 215.6 KiB (24.6%) | 16.0× | 18.7 MiB | 89 | break-even vs blobless: ~89 warm passes (18.7 MiB ÷ 215.6 KiB/pass) | worth it only at high reuse |
 
-> **Recommendation:** 4 repo(s) assessed — 2 agentcache worthwhile, 2 high-reuse-only.
+> **Recommendation:** 4 repo(s) assessed — 2 agentgitsmart worthwhile, 2 high-reuse-only.
 
 > Break-even vs blobless ranges from ~18 passes (anthropic-sdk-python) to ~89 passes (codex).
 
@@ -400,18 +400,18 @@ Every human commit triggers a server-side cache rebuild (CPU + storage) so the n
 
 Ran 2026-06-26 21:13 UTC → 2026-06-26 21:13 UTC (13s)
 
-> Cache experiment over 2 repo(s) [fd.git, ripgrep.git]: 2 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentcache; the agent edits 2.0% of source files each pass (seed 1000); 1 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'both' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).
+> Cache experiment over 2 repo(s) [fd.git, ripgrep.git]: 2 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentgitsmart; the agent edits 2.0% of source files each pass (seed 1000); 1 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'both' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).
 
-| Repo | files | naive (warm) | blobless (warm) | agentcache (warm) | agentcache cold | win vs naive |
+| Repo | files | naive (warm) | blobless (warm) | agentgitsmart (warm) | agentgitsmart cold | win vs naive |
 |------|------:|-------------:|----------------:|------------------:|----------------:|-------------:|
 | fd.git | 57 | 142.1 KiB | 12.9 KiB | 11.3 KiB | 1.1 MiB | 12.6× |
 | ripgrep.git | 222 | 649.8 KiB | 51.5 KiB | 42.6 KiB | 1.5 MiB | 15.3× |
 
 ### Cold start across the three approaches
 
-> **Column caveat:** agentcache cold = full-history blobless clone; blobless cold = `--depth=1` shallow clone (no history). These columns are not directly comparable on a bytes basis.
+> **Column caveat:** agentgitsmart cold = full-history blobless clone; blobless cold = `--depth=1` shallow clone (no history). These columns are not directly comparable on a bytes basis.
 
-| Repo | naive cold | blobless cold (depth-1 shallow) | agentcache cold (full history) | agentcache cold ÷ blobless |
+| Repo | naive cold | blobless cold (depth-1 shallow) | agentgitsmart cold (full history) | agentgitsmart cold ÷ blobless |
 |------|----------:|-------------:|----------------:|---------------------------:|
 | fd.git | 142.8 KiB | 7.4 KiB | 1.1 MiB | 147× |
 | ripgrep.git | 650.3 KiB | 43.1 KiB | 1.5 MiB | 37× |
@@ -420,8 +420,8 @@ Ran 2026-06-26 21:13 UTC → 2026-06-26 21:13 UTC (13s)
 
 | Repo | warm saved/pass vs blobless | warm vs naive | cold overhead vs blobless | break-even (warm passes) | verdict | Recommendation |
 |------|----------------------------:|:--------------:|---------------------------:|:------------------------:|:--------|:---------------|
-| fd.git | 1.6 KiB (12.4%) | 12.6× | 1.1 MiB | 677 | agentcache does NOT repay its cold cost vs blobless within ~677 passes — blobless preferred | blobless is enough |
-| ripgrep.git | 8.9 KiB (17.4%) | 15.3× | 1.5 MiB | 172 | agentcache does NOT repay its cold cost vs blobless within ~172 passes — blobless preferred | worth it only at high reuse |
+| fd.git | 1.6 KiB (12.4%) | 12.6× | 1.1 MiB | 677 | agentgitsmart does NOT repay its cold cost vs blobless within ~677 passes — blobless preferred | blobless is enough |
+| ripgrep.git | 8.9 KiB (17.4%) | 15.3× | 1.5 MiB | 172 | agentgitsmart does NOT repay its cold cost vs blobless within ~172 passes — blobless preferred | worth it only at high reuse |
 
 > **Recommendation:** 2 repo(s) assessed — 1 blobless-is-enough, 1 high-reuse-only.
 

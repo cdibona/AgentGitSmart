@@ -1,17 +1,25 @@
 """
-AgentCache Real Agent — stdlib-only.
+AgentGitSmart Real Agent — stdlib-only.
 
 Task: Add a '!' to one comment line in 1% of the project's Python files,
 then commit the change locally (no push — we benchmark the COST of
 discovering and reading those files, not write-back latency).
 
-The three approaches differ only in HOW the agent acquires the files it
+The approaches differ only in HOW the agent acquires the files it
 needs to read and edit:
 
-  naive:      git clone --depth=1  →  all files on disk, no planning needed
-  blobless:   filter=blob:none + depth=1  →  N lazy fetches, one per file
-  agentcache: filter=blob:none (full history)  →  manifest for planning,
-              POST /resolve → ONE batch fetch of exactly the needed files
+  naive:          git clone --depth=1  →  all files on disk, no planning needed
+  blobless:       filter=blob:none + depth=1  →  N lazy fetches, one per file
+  blobless_batch: filter=blob:none + depth=1  →  read path→oid from the LOCAL
+                  trees (git ls-tree, zero content) → ONE batch fetch. This is
+                  "AgentGitSmartBlobless": the batched-fetch win with NO server,
+                  NO side ref, NO symbol index — pure stock-git client technique.
+  agentgitsmart:     filter=blob:none (full history)  →  manifest/symbol service
+                  for planning, POST /resolve → ONE batch fetch, + CDN bundle.
+
+The point of blobless_batch is to isolate exactly what the AgentGitSmart server
+adds *over* a competent blobless client: run blobless_batch against agentgitsmart
+and the gap is the marginal value of the hook + service + bundle machinery.
 
 Stdlib-only so it runs inside the Docker container (python3 + git only).
 """
@@ -39,7 +47,7 @@ CLONE_TIMEOUT = 360  # full blobless clone of cpython can take a minute or two
 EMPTY_BLOB_OID = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
 
 # Directories to search for pre-built blobless bootstrap bundles.
-# The bundle CDN path is the key to agentcache's efficiency: the history is
+# The bundle CDN path is the key to agentgitsmart's efficiency: the history is
 # seeded from a pre-packaged local/CDN file (NOT through the git daemon),
 # so the promisor only serves the tiny delta + targeted blob fetches.
 # In production: bundles live on a CDN. Locally: we pre-build them.
@@ -56,7 +64,7 @@ def _find_bundle(repo_url: str, branch: str) -> Optional[str]:
     We prefer an exact ``<repo>-<branch>.bundle`` match, but fall back to ANY
     bundle for the repo (``<repo>-*.bundle``).  A bundle only *seeds history*
     via --bundle-uri; the branch it was cut from is irrelevant because a
-    throwaway/experiment branch (e.g. ``agentcache-exp/...``) shares the base
+    throwaway/experiment branch (e.g. ``agentgitsmart-exp/...``) shares the base
     branch's history, so the same objects are reused and only the tiny delta is
     fetched.  Without this fallback, experiments that target a renamed branch
     would silently skip the bundle and clone the full history through the daemon.
@@ -93,7 +101,7 @@ def _git(
     )
 
 
-# ── agentcache helpers ─────────────────────────────────────────────────────
+# ── agentgitsmart helpers ─────────────────────────────────────────────────────
 
 def _http_get(url: str, timeout: int = 10) -> Optional[dict]:
     try:
@@ -115,7 +123,7 @@ def _http_post(url: str, data: dict, timeout: int = 30) -> Optional[dict]:
         return None
 
 
-def _detect_agentcache(service_url: str, commit: str) -> Optional[list]:
+def _detect_agentgitsmart(service_url: str, commit: str) -> Optional[list]:
     """Return manifest entries if service is reachable, else None.
 
     The timeout is generous: the FIRST request for a commit triggers lazy
@@ -178,25 +186,63 @@ def _add_exclamation(content: str, rng: random.Random, prefixes: tuple = ("#",))
 
 # ── main agent logic ───────────────────────────────────────────────────────
 
-# ── agentcache fallback helper ────────────────────────────────────────────────
+# ── agentgitsmart fallback helper ────────────────────────────────────────────────
+
+
+def _batched_fetch(clone_dir: str, oids: list, metrics: dict) -> None:
+    """One batched ``git fetch origin <oids>`` + straggler promisor fetches.
+
+    Shared by the ``agentgitsmart`` and ``blobless_batch`` arms: both know the
+    exact OIDs they need and fetch them in a SINGLE pack instead of N lazy
+    per-file round trips.  Mutates ``metrics['fetch_roundtrips']``.
+
+      - ``--no-tags`` is critical: without it ``git fetch`` does tag
+        auto-following, negotiating over EVERY ref the server advertises. On a
+        mirror of a busy GitHub repo that's tens of thousands of refs/pull/*
+        refs — ~5 MiB of pure ref advertisement for a ~20 KiB blob fetch.
+      - check=False semantics (capture, ignore rc): ``git fetch <blob-oid>`` can
+        exit non-zero while still materialising the blobs (it fails to write
+        FETCH_HEAD for a non-commit). "objects present locally" is the real
+        success criterion, which we verify next and repair one-by-one.
+    """
+    if not oids:
+        return
+    subprocess.run(
+        ["git", "fetch", "--no-tags", "--no-write-fetch-head", "origin", *oids],
+        capture_output=True, text=True, cwd=clone_dir, timeout=180,
+    )
+    metrics["fetch_roundtrips"] += 1
+    # Verify materialisation; promisor-fetch any stragglers one by one (cat-file
+    # on a missing promisor object triggers a fetch).
+    missing = [
+        o for o in oids
+        if subprocess.run(
+            ["git", "cat-file", "-e", o], cwd=clone_dir, capture_output=True
+        ).returncode != 0
+    ]
+    for o in missing:
+        subprocess.run(
+            ["git", "cat-file", "-p", o], cwd=clone_dir, capture_output=True, timeout=60
+        )
+        metrics["fetch_roundtrips"] += 1
 
 
 def _apply_empty_manifest_fallback(
-    agentcache_files: list,
+    agentgitsmart_files: list,
     fallback_files: list,
     metrics: dict,
 ) -> list:
-    """Downgrade from an empty agentcache manifest to blobless discovery.
+    """Downgrade from an empty agentgitsmart manifest to blobless discovery.
 
-    If *agentcache_files* is non-empty, returns it unchanged (no fallback).
+    If *agentgitsmart_files* is non-empty, returns it unchanged (no fallback).
     If empty (tainted, stale, or mismatched manifest), records the reason in
-    *metrics*, clears ``agentcache_detected``, and returns *fallback_files*.
+    *metrics*, clears ``agentgitsmart_detected``, and returns *fallback_files*.
     Pure aside from the *metrics* dict mutation; no I/O performed here.
     """
-    if agentcache_files:
-        return agentcache_files
+    if agentgitsmart_files:
+        return agentgitsmart_files
     metrics["fallback"] = "blobless (empty or tainted manifest)"
-    metrics["agentcache_detected"] = False
+    metrics["agentgitsmart_detected"] = False
     return fallback_files
 
 
@@ -221,7 +267,7 @@ def run_real_agent(
 
     metrics: dict = {
         "approach": approach,
-        "agentcache_detected": False,
+        "agentgitsmart_detected": False,
         "bundle_used": False,   # True when history was seeded from local bundle (CDN simulation)
         "files_found": 0,
         "files_selected": 0,
@@ -250,13 +296,17 @@ def run_real_agent(
             _git("clone", "--depth=1", f"--branch={branch}",
                  repo_url, clone_dir, timeout=CLONE_TIMEOUT)
 
-        elif approach == "blobless":
+        elif approach in ("blobless", "blobless_batch"):
             # Shallow blobless: smallest possible clone (commits + trees, no blobs).
+            # blobless and blobless_batch share the identical clone — they differ
+            # ONLY in how they fetch file content afterwards (N lazy per-file
+            # checkouts vs ONE batched fetch), which is exactly the lever we want
+            # to isolate.
             _git("clone", "--filter=blob:none", "--depth=1", "--no-checkout",
                  f"--branch={branch}", repo_url, clone_dir, timeout=CLONE_TIMEOUT)
 
-        else:  # agentcache
-            # The bundle CDN path is what makes agentcache efficient.  The
+        else:  # agentgitsmart
+            # The bundle CDN path is what makes agentgitsmart efficient.  The
             # bootstrap bundle is pre-built once on the server and served from
             # a CDN (or local file in benchmarks).  The agent seeds the clone
             # from the bundle — which does NOT go through the git daemon/proxy
@@ -289,12 +339,15 @@ def run_real_agent(
         # ── Phase 2: Discover Python files ─────────────────────────
         t1 = time.monotonic()
         all_py: list = []
+        # blobless_batch populates this path→oid map from the LOCAL trees so it
+        # can batch-fetch by OID later with no server round trip.
+        path_oid_map: dict = {}
 
-        if approach == "agentcache":
+        if approach == "agentgitsmart":
             # Ask the service for the manifest — no file content needed.
-            entries = _detect_agentcache(service_url, commit)
+            entries = _detect_agentgitsmart(service_url, commit)
             if entries is not None:
-                metrics["agentcache_detected"] = True
+                metrics["agentgitsmart_detected"] = True
                 all_py = [
                     e["path"] for e in entries if e["path"].endswith(SOURCE_EXTS)
                 ]
@@ -307,7 +360,7 @@ def run_real_agent(
                         if line.endswith(SOURCE_EXTS)
                     ]
                     all_py = _apply_empty_manifest_fallback(
-                        agentcache_files=[],
+                        agentgitsmart_files=[],
                         fallback_files=blobless_files,
                         metrics=metrics,
                     )
@@ -322,6 +375,28 @@ def run_real_agent(
             r = _git("ls-tree", "-r", "--name-only", "HEAD",
                      cwd=clone_dir, timeout=30)
             all_py = [l for l in r.stdout.splitlines() if l.endswith(SOURCE_EXTS)]
+
+        elif approach == "blobless_batch":
+            # The whole point of this arm: a blobless clone ALREADY has every
+            # tree object, so `git ls-tree -r` yields path→oid for the entire
+            # repo with ZERO content fetched — the same OIDs the agentgitsmart
+            # manifest service would serve, available locally for free.  No
+            # server, no side ref, no symbol index.
+            #   line format:  <mode> <type> <oid>\t<path>
+            # NOTE: we deliberately do NOT pass `-l` (show size).  Blob sizes are
+            # NOT local under a blobless clone, so `-l` would lazily fetch every
+            # blob just to report its size — pulling the whole repo.  We fetch by
+            # OID and never need the size here.
+            r = _git("ls-tree", "-r", "HEAD", cwd=clone_dir, timeout=30)
+            for raw in r.stdout.splitlines():
+                if "\t" not in raw:
+                    continue
+                meta_part, path = raw.split("\t", 1)
+                parts = meta_part.split()
+                if len(parts) < 3:
+                    continue
+                path_oid_map[path] = parts[2]  # the blob OID
+            all_py = [p for p in path_oid_map if p.endswith(SOURCE_EXTS)]
 
         else:  # naive — walk the working tree on disk
             for root, dirs, files in os.walk(clone_dir):
@@ -352,7 +427,7 @@ def run_real_agent(
             # Nothing to do — files are already on disk.
             pass
 
-        elif approach == "agentcache" and metrics["agentcache_detected"]:
+        elif approach == "agentgitsmart" and metrics["agentgitsmart_detected"]:
             # Resolve paths → OIDs → ONE batch git fetch.
             resolved = _http_post(
                 f"{service_url.rstrip('/')}/cache/{commit}/resolve",
@@ -365,49 +440,27 @@ def run_real_agent(
             # empty __init__.py), already present locally, and servers reject a
             # `want` for it, which would fail the entire batch fetch.
             oids = sorted({o for o in raw_oids if o != EMPTY_BLOB_OID})
-            if oids:
-                # Batch-fetch exactly the blobs we need in ONE round trip.
-                #  - --no-tags is critical: without it `git fetch` does tag
-                #    auto-following, negotiating over EVERY ref the server
-                #    advertises.  On a mirror of a busy GitHub repo that's tens
-                #    of thousands of refs/pull/* refs — ~5 MiB of pure ref
-                #    advertisement for what should be a ~20 KiB blob fetch.
-                #  - We do NOT clear remote.origin.partialclonefilter: on some
-                #    repos (e.g. django) that override actually breaks blob
-                #    materialisation.  An explicit `want <oid>` already bypasses
-                #    the filter for that object.
-                #  - check=False: `git fetch <blob-oid>` can exit non-zero while
-                #    still materialising the blobs (it fails to write FETCH_HEAD
-                #    for a non-commit).  "objects present locally" is the real
-                #    success criterion, which we verify next.
-                subprocess.run(
-                    ["git", "fetch", "--no-tags", "--no-write-fetch-head",
-                     "origin", *oids],
-                    capture_output=True, text=True, cwd=clone_dir, timeout=180,
-                )
-                metrics["fetch_roundtrips"] = 1
-                # Verify materialisation; promisor-fetch any stragglers one by
-                # one (cat-file on a missing promisor object triggers a fetch).
-                missing = [
-                    o for o in oids
-                    if subprocess.run(
-                        ["git", "cat-file", "-e", o],
-                        cwd=clone_dir, capture_output=True,
-                    ).returncode != 0
-                ]
-                for o in missing:
-                    subprocess.run(
-                        ["git", "cat-file", "-p", o],
-                        cwd=clone_dir, capture_output=True, timeout=60,
-                    )
-                    metrics["fetch_roundtrips"] += 1
+            _batched_fetch(clone_dir, oids, metrics)
             # Materialise selected files into the working tree from the
             # now-local blobs (no more network after this).
             _git("checkout", "HEAD", "--", *selected,
                  cwd=clone_dir, timeout=30)
 
+        elif approach == "blobless_batch":
+            # Same batched fetch as agentgitsmart, but the OIDs come from the LOCAL
+            # ls-tree map built during discovery — NO service round trip.  This
+            # is the entire "AgentGitSmartBlobless" proposition: stock blobless +
+            # one batched fetch keyed by locally-known OIDs.
+            raw_oids = [path_oid_map.get(p) for p in selected]
+            oids = sorted({o for o in raw_oids if o and o != EMPTY_BLOB_OID})
+            _batched_fetch(clone_dir, oids, metrics)
+            # Materialise selected files; any straggler falls back to a lazy
+            # checkout (check=False so a single miss never aborts the batch).
+            _git("checkout", "HEAD", "--", *selected,
+                 cwd=clone_dir, timeout=30, check=False)
+
         else:
-            # blobless or agentcache-fallback: one lazy promisor fetch per file.
+            # blobless or agentgitsmart-fallback: one lazy promisor fetch per file.
             for path in selected:
                 _git("checkout", "HEAD", "--", path,
                      cwd=clone_dir, timeout=30, check=False)
@@ -505,7 +558,7 @@ def run_real_agent(
             parent = _git("rev-parse", "HEAD", cwd=clone_dir).stdout.strip()
             message = (
                 f"agent({approach}): add ! to {n_modified} comment(s)\n\n"
-                f"approach={approach} agentcache={metrics['agentcache_detected']} "
+                f"approach={approach} agentgitsmart={metrics['agentgitsmart_detected']} "
                 f"bundle={metrics['bundle_used']} seed={seed} pct={pct}%\n"
                 f"NOTE: partial-tree commit (only edited files) to keep the "
                 f"agent's network footprint at zero."
@@ -514,10 +567,10 @@ def run_real_agent(
                 ["git", "commit-tree", tree, "-p", parent, "-m", message],
                 capture_output=True, text=True, cwd=clone_dir,
                 timeout=30, check=True,
-                env={**env, "GIT_AUTHOR_NAME": "AgentCache Real Agent",
-                     "GIT_AUTHOR_EMAIL": "agent@agentcache",
-                     "GIT_COMMITTER_NAME": "AgentCache Real Agent",
-                     "GIT_COMMITTER_EMAIL": "agent@agentcache"},
+                env={**env, "GIT_AUTHOR_NAME": "AgentGitSmart Real Agent",
+                     "GIT_AUTHOR_EMAIL": "agent@agentgitsmart",
+                     "GIT_COMMITTER_NAME": "AgentGitSmart Real Agent",
+                     "GIT_COMMITTER_EMAIL": "agent@agentgitsmart"},
             ).stdout.strip()
 
             subprocess.run(
@@ -542,7 +595,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--approach", required=True,
-                   choices=["naive", "blobless", "agentcache"])
+                   choices=["naive", "blobless", "blobless_batch", "agentgitsmart"])
     p.add_argument("--repo-url", required=True)
     p.add_argument("--commit", required=True)
     p.add_argument("--branch", default="main")

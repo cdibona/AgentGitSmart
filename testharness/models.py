@@ -10,7 +10,7 @@ class RunConfig(BaseModel):
     repo_name: str
     branch: str = "master"
     target_paths: List[str]
-    approaches: List[str] = ["naive", "blobless", "agentcache"]
+    approaches: List[str] = ["naive", "blobless", "agentgitsmart"]
     num_runs: int = 3
     use_docker: bool = True
     latency_ms: int = 0
@@ -26,7 +26,7 @@ class PhaseBreakdown(BaseModel):
 
 
 class RealAgentMetrics(BaseModel):
-    agentcache_detected: bool = False
+    agentgitsmart_detected: bool = False
     bundle_used: bool = False
     files_found: int = 0
     files_selected: int = 0
@@ -102,7 +102,7 @@ class ExperimentConfig(BaseModel):
     """A comprehensive multi-project campaign (cold/warm + method comparison)."""
 
     repos: List[str]
-    methods: List[str] = ["naive", "blobless", "agentcache"]
+    methods: List[str] = ["naive", "blobless", "blobless_batch", "agentgitsmart"]
     passes: int = 3  # agent passes per repo (1st = cold, rest = warm)
     pct: float = 2.0  # % of source files the agent edits
     seed: int = 1000
@@ -115,7 +115,7 @@ class ExperimentConfig(BaseModel):
     )
     use_docker: bool = True  # run each pass in a fresh disposable container (default)
     cold_bundle: bool = (
-        False  # when True, cold agentcache passes are ALLOWED to use the pre-built
+        False  # when True, cold agentgitsmart passes are ALLOWED to use the pre-built
         # blobless bundle (production-amortised cold).  Default False = honest
         # first-visit cost (no bundle, full history through the network).
     )
@@ -126,7 +126,7 @@ class SystemStatus(BaseModel):
     git_daemon_port: int = 9418
     proxy: bool = False
     proxy_port: int = 9419
-    agentcache_service: bool = False
-    agentcache_port: int = 8765
+    agentgitsmart_service: bool = False
+    agentgitsmart_port: int = 8765
     repos: List[str] = Field(default_factory=list)
     docker_available: bool = False

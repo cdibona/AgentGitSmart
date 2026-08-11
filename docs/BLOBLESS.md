@@ -1,7 +1,7 @@
-# Blobless clones vs AgentCache (and whether you need it)
+# Blobless clones vs AgentGitSmart (and whether you need it)
 
 There are three ways an agent can get a working copy of a big repo cheaply. Two
-of them are stock Git and need nothing installed. AgentCache is the third — and
+of them are stock Git and need nothing installed. AgentGitSmart is the third — and
 it only earns its keep on certain repos. This page is the honest comparison.
 
 ## Three strategies
@@ -10,9 +10,17 @@ it only earns its keep on certain repos. This page is the honest comparison.
 |---|---|
 | **naive** | `git clone --depth=1` — every blob at HEAD (the GitHub Actions default) |
 | **blobless** | `git clone --filter=blob:none` — full history + trees, but ZERO file content; blobs fetched lazily, one per file as it's read |
-| **agentcache** | blobless + manifest/symbol `resolve` + **one** batched fetch of exactly the needed blobs + an optional CDN bootstrap bundle |
+| **blobless+batch** *(AgentGitSmartBlobless)* | blobless, but read the needed blobs' OIDs from the **local trees** (`git ls-tree`, zero content) and fetch them in **one** batched `git fetch` — the batching win of agentgitsmart with **no server, hook, or side ref** |
+| **agentgitsmart** | blobless + manifest/symbol `resolve` + **one** batched fetch of exactly the needed blobs + an optional CDN bootstrap bundle |
 
-## You do NOT need to install AgentCache to use blobless
+The **blobless+batch** row is the "just do blobless well" baseline. Because a
+blobless clone already holds every tree, an agent can map its target paths to
+blob OIDs locally and batch-fetch them with stock git — no AgentGitSmart install at
+all. The harness measures it as a distinct arm so you can see exactly what (if
+anything) the full server adds on top; that comparison drives the three-way
+adoption verdict.
+
+## You do NOT need to install AgentGitSmart to use blobless
 
 This is the key point, stated plainly:
 
@@ -23,19 +31,19 @@ query service, no side refs, no AGENTS.md — just a git flag.
 
 For **many repos, blobless alone is already cheap.** If a repo is small or lean
 (not many large blobs, not worked by many agents per commit), partial clone
-already gets you most of the win, and the extra machinery of AgentCache buys you
-little. That is exactly why AgentCache's own adoption tools
+already gets you most of the win, and the extra machinery of AgentGitSmart buys you
+little. That is exactly why AgentGitSmart's own adoption tools
 ([`scripts/assess_repo.py`](../scripts/assess_repo.py) and the measured trial)
 will tell you **"blobless is enough"** for small or lean repos — and abstain
 rather than over-promise.
 
-So: reach for blobless first. Reach for AgentCache only when the numbers say it
+So: reach for blobless first. Reach for AgentGitSmart only when the numbers say it
 pays.
 
-## What AgentCache adds on top of blobless
+## What AgentGitSmart adds on top of blobless
 
 When a repo *is* blob-heavy and worked by many agents per commit, plain blobless
-leaves real savings on the table, and AgentCache picks them up:
+leaves real savings on the table, and AgentGitSmart picks them up:
 
 1. **The manifest gives file sizes**, so an agent never blind-fetches a huge
    asset — it can see a 2 GB blob coming and decide not to pull it.
@@ -55,7 +63,7 @@ before adopting.
 
 ## See also
 
-- [How AgentCache works](HOW_IT_WORKS.md) — the mechanism behind the manifest,
+- [How AgentGitSmart works](HOW_IT_WORKS.md) — the mechanism behind the manifest,
   symbol index, batched fetch, and bundle.
 - [Testing, results & the harness](TESTING.md) — measure your own repo and get an
   honest "adopt / blobless is enough / inconclusive" verdict.

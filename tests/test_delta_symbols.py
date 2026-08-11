@@ -12,9 +12,9 @@ from dataclasses import replace
 import pygit2
 import pytest
 
-from agentcache import cache_writer
-from agentcache import hook
-from agentcache import symbols as sym
+from agentgitsmart import cache_writer
+from agentgitsmart import hook
+from agentgitsmart import symbols as sym
 from tests.conftest import FILES, make_commit
 
 # ---------------------------------------------------------------------------

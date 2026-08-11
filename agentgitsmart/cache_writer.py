@@ -7,7 +7,7 @@ commit, we:
   2. assemble them into a single flat tree (TreeBuilder),
   3. create a *parentless* (orphan) commit pointing at that tree -- so the
      cache contributes no history and is cheap to fetch in isolation,
-  4. point ``refs/agent-cache/<source-commit>`` at it (force, so regenerating
+  4. point ``refs/agent-git-smart/<source-commit>`` at it (force, so regenerating
      is idempotent).
 
 No working tree is ever touched. The query service reads artifacts straight
@@ -39,9 +39,9 @@ def write_cache(
     source_commit: str,
     artifacts: Mapping[str, bytes],
     *,
-    ref_prefix: str = "refs/agent-cache",
-    bot_name: str = "AgentCache Bot",
-    bot_email: str = "agentcache@localhost",
+    ref_prefix: str = "refs/agent-git-smart",
+    bot_name: str = "AgentGitSmart Bot",
+    bot_email: str = "agentgitsmart@localhost",
     message: str | None = None,
 ) -> Dict[str, Any]:
     """Create the orphan cache commit and (force-)update the side ref."""
@@ -55,7 +55,7 @@ def write_cache(
     tree_oid = builder.write()
 
     sig = pygit2.Signature(bot_name, bot_email)
-    msg = message or f"agentcache: artifacts for {source_commit}"
+    msg = message or f"agentgitsmart: artifacts for {source_commit}"
     # reference=None -> create the commit object without moving any ref;
     # parents=[] -> orphan, so this never links into the project history.
     commit_oid = repo.create_commit(None, sig, sig, msg, tree_oid, [])
@@ -73,7 +73,7 @@ def write_cache(
 
 
 def list_caches(
-    repo: pygit2.Repository, ref_prefix: str = "refs/agent-cache"
+    repo: pygit2.Repository, ref_prefix: str = "refs/agent-git-smart"
 ) -> List[str]:
     """Return the source-commit OIDs that currently have a cache ref."""
     prefix = ref_prefix.rstrip("/") + "/"
@@ -89,7 +89,7 @@ def read_artifact(
     source_commit: str,
     name: str,
     *,
-    ref_prefix: str = "refs/agent-cache",
+    ref_prefix: str = "refs/agent-git-smart",
 ) -> bytes:
     """Read one artifact's bytes from the side ref. Raises KeyError if absent."""
     ref = _ref_name(ref_prefix, str(source_commit))

@@ -13,7 +13,7 @@ from .metrics import CpuSampler
 
 log = logging.getLogger(__name__)
 
-IMAGE_TAG = "agentcache-agent:bookworm"
+IMAGE_TAG = "agentgitsmart-agent:bookworm"
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 _DOCKERFILE_DIR = str(Path(__file__).resolve().parent / "docker")
 _SENTINEL_START = "__PACK_RESULT__"
@@ -36,7 +36,7 @@ def is_docker_available() -> bool:
 
 
 def ensure_image(log_fn: Callable[[str], None]) -> bool:
-    """Build the agentcache-agent Docker image if not present. Returns True on success."""
+    """Build the agentgitsmart-agent Docker image if not present. Returns True on success."""
     check = subprocess.run(
         ["docker", "image", "inspect", IMAGE_TAG],
         capture_output=True,

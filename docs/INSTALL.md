@@ -1,11 +1,11 @@
 # Installation & adoption
 
-How to install agentcache on a Git server, run the query service, adopt it on
+How to install agentgitsmart on a Git server, run the query service, adopt it on
 GitHub (where server hooks don't run), and make a repo agent-aware so agents
 discover and use the cache automatically.
 
-For *how* the pieces fit together, see [How AgentCache works](HOW_IT_WORKS.md).
-To decide whether you even need it, see [Blobless vs AgentCache](BLOBLESS.md).
+For *how* the pieces fit together, see [How AgentGitSmart works](HOW_IT_WORKS.md).
+To decide whether you even need it, see [Blobless vs AgentGitSmart](BLOBLESS.md).
 
 ## Prerequisites & install (server)
 
@@ -36,7 +36,7 @@ git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
 ## Run the query service
 
 ```bash
-AGENTCACHE_REPO_DIR=/srv/git/myrepo.git python -m agentcache.service
+AGENTGITSMART_REPO_DIR=/srv/git/myrepo.git python -m agentgitsmart.service
 ```
 
 Endpoints: `/healthz`, `/caches`, `/cache/<commit>/manifest`,
@@ -44,24 +44,24 @@ Endpoints: `/healthz`, `/caches`, `/cache/<commit>/manifest`,
 generation enabled, the **first** request for a commit builds the cache on
 demand; later requests (and the `post-receive` hook) reuse it.
 
-## This repo dogfoods agentcache
+## This repo dogfoods agentgitsmart
 
 **(The GitHub adoption path — when server-side hooks aren't available.)**
 
-AgentCache uses agentcache **on itself**. GitHub doesn't run server-side
-`post-receive` hooks, so [`.github/workflows/agentcache.yml`](../.github/workflows/agentcache.yml)
+AgentGitSmart uses agentgitsmart **on itself**. GitHub doesn't run server-side
+`post-receive` hooks, so [`.github/workflows/agentgitsmart.yml`](../.github/workflows/agentgitsmart.yml)
 does the equivalent in CI: on every push to `main` it runs
-[`scripts/generate_agentcache.py`](../scripts/generate_agentcache.py), builds the
+[`scripts/generate_agentgitsmart.py`](../scripts/generate_agentgitsmart.py), builds the
 manifest + symbol index (+ a blobless bundle), and publishes
-`refs/agent-cache/<commit>` back to the repo (plus a workflow artifact). The
-[`.agentcache`](../.agentcache) file advertises this **service-less, side-ref
+`refs/agent-git-smart/<commit>` back to the repo (plus a workflow artifact). The
+[`.agentgitsmart`](../.agentgitsmart) file advertises this **service-less, side-ref
 mode**, and [`AGENTS.md`](../AGENTS.md) gives agents the exact cold-start. So an
 agent (or a GitHub Action) working on this repo can fetch only the files it
 needs straight from the side ref — no running service required.
 
 ## Making your repo agent-aware
 
-Once agentcache is installed on a repo's server, add two small files to that
+Once agentgitsmart is installed on a repo's server, add two small files to that
 repo so agents discover and use it automatically.
 
 ### 1 — Drop an `AGENTS.md` in the repo root
@@ -72,22 +72,22 @@ Copy the template and fill in the placeholders:
 
 ```bash
 cp docs/ADOPTER_AGENTS_TEMPLATE.md /your-repo/AGENTS.md
-# Edit: replace <AGENTCACHE_SERVICE_URL>, <REPO_URL>, etc.
+# Edit: replace <AGENTGITSMART_SERVICE_URL>, <REPO_URL>, etc.
 ```
 
 See [`ADOPTER_AGENTS_TEMPLATE.md`](ADOPTER_AGENTS_TEMPLATE.md) for the full
 template.
 
-### 2 — Add a `.agentcache` config file (machine-readable discovery)
+### 2 — Add a `.agentgitsmart` config file (machine-readable discovery)
 
 ```toml
-# .agentcache — machine-readable agentcache discovery for AI agents
+# .agentgitsmart — machine-readable agentgitsmart discovery for AI agents
 # See AGENTS.md for the full cold-start protocol.
-service_url = "https://agentcache.example.com"
+service_url = "https://agentgitsmart.example.com"
 bundle_cdn  = "https://cdn.example.com/bundles/{commit}.bundle"
 ```
 
-An agent can then `grep service_url .agentcache`. A `.agentcache.example` ships
+An agent can then `grep service_url .agentgitsmart`. A `.agentgitsmart.example` ships
 in this repo as a starting point.
 
 ### Agent support matrix

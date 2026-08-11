@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""try_agentcache.py — "Would AgentCache help MY repo, and by how much?"
+"""try_agentgitsmart.py — "Would AgentGitSmart help MY repo, and by how much?"
 
 A one-shot MEASURED companion to scripts/assess_repo.py.
 Where assess_repo predicts from repo shape, this tool MEASURES real network
 bytes by running your repo through the testharness byte-counting proxy:
-  - Pass 1 (COLD):  builds / seeds the agentcache artifacts.
+  - Pass 1 (COLD):  builds / seeds the agentgitsmart artifacts.
   - Pass 2 (WARM):  steady-state per-agent cost.
 
-Reports cold bytes for all three approaches, warm bytes, the agentcache
+Reports cold bytes for all three approaches, warm bytes, the agentgitsmart
 saving vs blobless, break-even passes, and a suitability verdict — all
 backed by real measured numbers (not static prediction).
 
 Usage:
     # Run from your repo root — TARGET defaults to the current directory:
-    python scripts/try_agentcache.py [TARGET] [--json] [--verbose]
+    python scripts/try_agentgitsmart.py [TARGET] [--json] [--verbose]
 
     # Explicit path or URL:
-    python scripts/try_agentcache.py /path/to/repo
-    python scripts/try_agentcache.py https://github.com/user/repo.git
+    python scripts/try_agentgitsmart.py /path/to/repo
+    python scripts/try_agentgitsmart.py https://github.com/user/repo.git
 
 TARGET may be a local repo path or any git URL.  If omitted the current
 working directory is used (must be a git repository).
@@ -50,10 +50,10 @@ if str(_ROOT) not in sys.path:
 
 from scripts.render_experiment_report import (  # noqa: E402
     _fmt_bytes,
-    suitability_verdict,
+    three_way_verdict,
 )
 from testharness.experiment_runner import ExperimentRunner  # noqa: E402
-from testharness.processes import AgentCacheService, GitDaemon  # noqa: E402
+from testharness.processes import AgentGitSmartService, GitDaemon  # noqa: E402
 from testharness.proxy import ByteCountingProxy  # noqa: E402
 
 
@@ -168,8 +168,8 @@ def _mirror_repo(target: str, repos_dir: str) -> tuple[str, str]:
             f"git clone --mirror failed:\n{result.stderr.strip() or result.stdout.strip()}"
         )
 
-    # Enable blobless + agentcache filter support (required for the blobless
-    # and agentcache approaches; see tests/test_bundle_and_coldstart.py).
+    # Enable blobless + agentgitsmart filter support (required for the blobless
+    # and agentgitsmart approaches; see tests/test_bundle_and_coldstart.py).
     for key, val in [
         ("uploadpack.allowFilter", "true"),
         ("uploadpack.allowAnySHA1InWant", "true"),
@@ -188,17 +188,17 @@ def _mirror_repo(target: str, repos_dir: str) -> tuple[str, str]:
 
 
 def render_try_report(summary: dict, files: int) -> str:
-    """Render a human-readable try-agentcache measurement report.
+    """Render a human-readable try-agentgitsmart measurement report.
 
     This is a pure function: no I/O, no side effects.
 
     Args:
         summary: Per-method measurement dict as produced by
                  ``ExperimentRunner._summarize_campaign()``.  Expected keys:
-                 ``"naive"``, ``"blobless"``, ``"agentcache"``, each with at
-                 least ``cold_bytes`` and ``warm_avg_bytes``; and
-                 ``"_win_vs_naive"``.  An ``"error"`` key at the top level
-                 means the campaign failed.
+                 ``"naive"``, ``"blobless"``, ``"blobless_batch"``,
+                 ``"agentgitsmart"``, each with at least ``cold_bytes`` and
+                 ``warm_avg_bytes``; and ``"_win_vs_naive"``.  An ``"error"``
+                 key at the top level means the campaign failed.
         files:   File count in the repo HEAD tree (for verdict + header).
 
     Returns:
@@ -208,7 +208,7 @@ def render_try_report(summary: dict, files: int) -> str:
     if error:
         lines = [
             "=" * 64,
-            "  AgentCache trial measurement",
+            "  AgentGitSmart trial measurement",
             "=" * 64,
             f"  ERROR: {error}",
             "=" * 64,
@@ -217,14 +217,16 @@ def render_try_report(summary: dict, files: int) -> str:
 
     naive = summary.get("naive") or {}
     blobless = summary.get("blobless") or {}
-    agentcache = summary.get("agentcache") or {}
+    blobless_batch = summary.get("blobless_batch") or {}
+    agentgitsmart = summary.get("agentgitsmart") or {}
 
     naive_cold: Optional[int] = naive.get("cold_bytes")
     naive_warm: Optional[int] = naive.get("warm_avg_bytes")
     bl_cold: Optional[int] = blobless.get("cold_bytes")
     bl_warm: Optional[int] = blobless.get("warm_avg_bytes")
-    ac_cold: Optional[int] = agentcache.get("cold_bytes")
-    ac_warm: Optional[int] = agentcache.get("warm_avg_bytes")
+    blb_warm: Optional[int] = blobless_batch.get("warm_avg_bytes")
+    ac_cold: Optional[int] = agentgitsmart.get("cold_bytes")
+    ac_warm: Optional[int] = agentgitsmart.get("warm_avg_bytes")
 
     # Warm saving vs blobless (the honest competitor, not naive)
     warm_saved: Optional[float] = None
@@ -245,24 +247,29 @@ def render_try_report(summary: dict, files: int) -> str:
             else:
                 break_even = math.ceil(cold_overhead / warm_saved)
 
-    # Suitability verdict
-    label, reason = suitability_verdict(
+    # Three-way suitability verdict: does the no-server batched arm already
+    # capture the win (bytes), or cut round-trips, or is the full server needed?
+    label, reason = three_way_verdict(
         files=files,
-        warm_saving_ratio=warm_saving_ratio,
+        blobless_lazy_warm=bl_warm,
+        blobless_batch_warm=blb_warm,
+        agentgitsmart_warm=ac_warm,
         break_even_passes=break_even,
+        blobless_lazy_roundtrips=blobless.get("warm_avg_roundtrips"),
+        blobless_batch_roundtrips=blobless_batch.get("warm_avg_roundtrips"),
     )
 
     # Saving % display
     if warm_saving_ratio is not None and warm_saving_ratio > 0:
         saving_str = f"{warm_saving_ratio * 100:.1f}% vs blobless"
     elif warm_saving_ratio is not None:
-        saving_str = "0% — agentcache is NOT cheaper than blobless here"
+        saving_str = "0% — agentgitsmart is NOT cheaper than blobless here"
     else:
         saving_str = "— (data unavailable)"
 
     lines: list[str] = []
     lines.append("=" * 64)
-    lines.append(f"  AgentCache trial: {files:,} files in repo")
+    lines.append(f"  AgentGitSmart trial: {files:,} files in repo")
     lines.append("  REAL measured network bytes via byte-counting proxy.")
     lines.append("  Pass 1 = COLD (builds artifacts)  |  Pass 2 = WARM (steady state)")
     lines.append("  Simulated agent edits 2% of source files per pass.")
@@ -270,32 +277,36 @@ def render_try_report(summary: dict, files: int) -> str:
     lines.append("")
 
     # COLD section
-    lines.append("  COLD pass (one-time cost to seed agentcache artifacts):")
+    lines.append("  COLD pass (one-time cost to seed agentgitsmart artifacts):")
     lines.append(f"    naive:      {_fmt_bytes(naive_cold)}")
     lines.append(
         f"    blobless:   {_fmt_bytes(bl_cold)}  ← depth-1 shallow (no history)"
     )
     lines.append(
-        f"    agentcache: {_fmt_bytes(ac_cold)}  ← full-history blobless clone"
+        f"    agentgitsmart: {_fmt_bytes(ac_cold)}  ← full-history blobless clone"
     )
     lines.append("")
     lines.append(
-        "  ⚠ blobless cold ≠ agentcache cold: different products.  blobless cold"
+        "  ⚠ blobless cold ≠ agentgitsmart cold: different products.  blobless cold"
     )
-    lines.append("    is depth-1 shallow (no history). agentcache cold delivers full")
+    lines.append("    is depth-1 shallow (no history). agentgitsmart cold delivers full")
     lines.append("    history. In production the bootstrap bundle is built once per")
     lines.append("    commit and CDN-cached — a per-commit cost, not per-agent.")
     lines.append("")
 
     # WARM section
     lines.append("  WARM per-agent-pass (steady-state after artifacts are seeded):")
-    lines.append(f"    naive:      {_fmt_bytes(naive_warm)}")
-    lines.append(f"    blobless:   {_fmt_bytes(bl_warm)}")
-    lines.append(f"    agentcache: {_fmt_bytes(ac_warm)}")
-    lines.append(f"    saving:     {saving_str}")
+    lines.append(f"    naive:            {_fmt_bytes(naive_warm)}")
+    lines.append(f"    blobless:         {_fmt_bytes(bl_warm)}  ← N lazy per-file fetches")
+    lines.append(
+        f"    blobless+batch:   {_fmt_bytes(blb_warm)}  ← ONE batched fetch, NO server "
+        "(AgentGitSmartBlobless)"
+    )
+    lines.append(f"    agentgitsmart:       {_fmt_bytes(ac_warm)}  ← full server + CDN bundle")
+    lines.append(f"    saving:           {saving_str}")
     if break_even is not None:
         if break_even == 0:
-            lines.append("    break-even: immediate (agentcache cold ≤ blobless cold)")
+            lines.append("    break-even: immediate (agentgitsmart cold ≤ blobless cold)")
         else:
             lines.append(
                 f"    break-even: ~{break_even} warm agent pass(es) vs blobless"
@@ -323,7 +334,7 @@ def render_try_report(summary: dict, files: int) -> str:
 
 
 def try_result_json(summary: dict, files: int) -> dict:
-    """Return a machine-readable JSON-serializable dict for try_agentcache.
+    """Return a machine-readable JSON-serializable dict for try_agentgitsmart.
 
     This is a pure function: no I/O, no side effects.
 
@@ -345,14 +356,17 @@ def try_result_json(summary: dict, files: int) -> dict:
 
     naive = summary.get("naive") or {}
     blobless = summary.get("blobless") or {}
-    agentcache = summary.get("agentcache") or {}
+    blobless_batch = summary.get("blobless_batch") or {}
+    agentgitsmart = summary.get("agentgitsmart") or {}
 
     naive_cold: Optional[int] = naive.get("cold_bytes")
     naive_warm: Optional[int] = naive.get("warm_avg_bytes")
     bl_cold: Optional[int] = blobless.get("cold_bytes")
     bl_warm: Optional[int] = blobless.get("warm_avg_bytes")
-    ac_cold: Optional[int] = agentcache.get("cold_bytes")
-    ac_warm: Optional[int] = agentcache.get("warm_avg_bytes")
+    blb_cold: Optional[int] = blobless_batch.get("cold_bytes")
+    blb_warm: Optional[int] = blobless_batch.get("warm_avg_bytes")
+    ac_cold: Optional[int] = agentgitsmart.get("cold_bytes")
+    ac_warm: Optional[int] = agentgitsmart.get("warm_avg_bytes")
 
     warm_saved: Optional[float] = None
     warm_saving_ratio: Optional[float] = None
@@ -371,10 +385,14 @@ def try_result_json(summary: dict, files: int) -> dict:
             else:
                 break_even = math.ceil(cold_overhead / warm_saved)
 
-    label, reason = suitability_verdict(
+    label, reason = three_way_verdict(
         files=files,
-        warm_saving_ratio=warm_saving_ratio,
+        blobless_lazy_warm=bl_warm,
+        blobless_batch_warm=blb_warm,
+        agentgitsmart_warm=ac_warm,
         break_even_passes=break_even,
+        blobless_lazy_roundtrips=blobless.get("warm_avg_roundtrips"),
+        blobless_batch_roundtrips=blobless_batch.get("warm_avg_roundtrips"),
     )
 
     return {
@@ -383,12 +401,14 @@ def try_result_json(summary: dict, files: int) -> dict:
         "cold_bytes": {
             "naive": naive_cold,
             "blobless": bl_cold,
-            "agentcache": ac_cold,
+            "blobless_batch": blb_cold,
+            "agentgitsmart": ac_cold,
         },
         "warm_bytes": {
             "naive": naive_warm,
             "blobless": bl_warm,
-            "agentcache": ac_warm,
+            "blobless_batch": blb_warm,
+            "agentgitsmart": ac_warm,
         },
         "saving_pct_vs_blobless": (
             round(warm_saving_ratio * 100, 1) if warm_saving_ratio is not None else None
@@ -429,19 +449,19 @@ async def _run_experiment(
     proxy = ByteCountingProxy("127.0.0.1", proxy_port, "127.0.0.1", git_port)
     await proxy.start()
 
-    # --- agentcache service ---
-    svc = AgentCacheService(port=svc_port)
+    # --- agentgitsmart service ---
+    svc = AgentGitSmartService(port=svc_port)
     svc_ok = await svc.start(repo_dir)
     if not svc_ok and verbose:
         print(
-            f"  [warn] agentcache service did not start on port {svc_port}; "
-            "agentcache method will fall back to blobless"
+            f"  [warn] agentgitsmart service did not start on port {svc_port}; "
+            "agentgitsmart method will fall back to blobless"
         )
 
     try:
         runner = ExperimentRunner(
             proxy=proxy,
-            agentcache_svc=svc,
+            agentgitsmart_svc=svc,
             repos_dir=repos_dir,
             proxy_port=proxy_port,
             svc_port=svc_port,
@@ -451,8 +471,10 @@ async def _run_experiment(
         config = {
             # One repo — the one we mirrored.
             "repos": [f"{repo_name}.git"],
-            # All three approaches to compare.
-            "methods": ["naive", "blobless", "agentcache"],
+            # All four approaches to compare (blobless_batch = AgentGitSmartBlobless:
+            # the no-server batched technique, so we can tell whether the full
+            # server is even needed).
+            "methods": ["naive", "blobless", "blobless_batch", "agentgitsmart"],
             # passes=2: pass 1 is COLD (builds artifacts), pass 2 is WARM
             # (steady-state — the number the user actually cares about).
             "passes": 2,
@@ -505,7 +527,7 @@ def should_offer_install(
     verdict_label: str,
     target_is_local_worktree: bool,
 ) -> bool:
-    """Return True ONLY when AgentCache is genuinely worthwhile AND the target
+    """Return True ONLY when AgentGitSmart is genuinely worthwhile AND the target
     is a local, non-bare git worktree.
 
     Honest gating: we do NOT offer for "worth it only at high reuse",
@@ -521,14 +543,14 @@ def should_offer_install(
         True when the offer should be made, False otherwise.
 
     Examples:
-        >>> should_offer_install("agentcache worthwhile", True)
+        >>> should_offer_install("agentgitsmart worthwhile", True)
         True
-        >>> should_offer_install("agentcache worthwhile", False)
+        >>> should_offer_install("agentgitsmart worthwhile", False)
         False
         >>> should_offer_install("blobless is enough", True)
         False
     """
-    return verdict_label == "agentcache worthwhile" and target_is_local_worktree
+    return verdict_label == "agentgitsmart worthwhile" and target_is_local_worktree
 
 
 def detect_remote_kind(remote_url: Optional[str]) -> str:
@@ -575,13 +597,13 @@ def plan_scaffold(
         action (str)  -- ``"create"`` or ``"skip-exists"`` (never overwrite).
 
     Items:
-        1. ``.github/workflows/agentcache.yml`` -- ONLY when remote_kind == "github".
+        1. ``.github/workflows/agentgitsmart.yml`` -- ONLY when remote_kind == "github".
         2. ``AGENTS.md``  -- always.
-        3. ``.agentcache`` -- always.
+        3. ``.agentgitsmart`` -- always.
 
     Args:
-        tooling_root: Root of the AgentCache tooling tree (has docs/ and
-                      .agentcache.example).
+        tooling_root: Root of the AgentGitSmart tooling tree (has docs/ and
+                      .agentgitsmart.example).
         target_repo:  Root of the adopter's repo where files will be placed.
         remote_kind:  String from :func:`detect_remote_kind`.
 
@@ -599,11 +621,11 @@ def plan_scaffold(
 
     if remote_kind == "github":
         items.append(
-            _item(".github/workflows/agentcache.yml", "docs/adopter-workflow.yml")
+            _item(".github/workflows/agentgitsmart.yml", "docs/adopter-workflow.yml")
         )
 
     items.append(_item("AGENTS.md", "docs/ADOPTER_AGENTS_TEMPLATE.md"))
-    items.append(_item(".agentcache", ".agentcache.example"))
+    items.append(_item(".agentgitsmart", ".agentgitsmart.example"))
 
     return items
 
@@ -664,7 +686,7 @@ def run_install_offer(
         verdict_label:            Suitability label from :func:`suitability_verdict`.
         target_is_local_worktree: True when the target is a local non-bare repo.
         target_repo:              Root of the adopter's repo.
-        tooling_root:             Root of the AgentCache tooling tree.
+        tooling_root:             Root of the AgentGitSmart tooling tree.
         remote_url:               URL from ``git remote get-url origin`` (or None).
         assume_yes:               Skip the y/N prompt and proceed directly.
         no_install:               Print hint only; do not scaffold anything.
@@ -681,7 +703,7 @@ def run_install_offer(
 
     if no_install:
         print(
-            "\nAgentCache looks worthwhile -- re-run without --no-install "
+            "\nAgentGitSmart looks worthwhile -- re-run without --no-install "
             "(or see docs/INSTALL.md) to set it up."
         )
         return {"offered": True, "installed": False, "reason": "no_install"}
@@ -692,7 +714,7 @@ def run_install_offer(
     if not assume_yes:
         files_to_create = [i["dest"] for i in plan if i["action"] == "create"]
         files_to_skip = [i["dest"] for i in plan if i["action"] == "skip-exists"]
-        print("\nAgentCache looks worthwhile for this repo.")
+        print("\nAgentGitSmart looks worthwhile for this repo.")
         print("These files would be created in your repo:")
         for f in files_to_create:
             print(f"  + {f}")
@@ -703,7 +725,7 @@ def run_install_offer(
         if remote_kind in ("other", "none"):
             print(
                 "\nNote: the GitHub Action template won't apply to your hosting "
-                "platform.  AGENTS.md and .agentcache are server-agnostic and will "
+                "platform.  AGENTS.md and .agentgitsmart are server-agnostic and will "
                 "still be created.  See docs/INSTALL.md for the self-hosted "
                 "post-receive hook."
             )
@@ -717,7 +739,7 @@ def run_install_offer(
             # /dev/tty is unavailable (non-interactive shell, pipe, etc.)
             if not interactive:
                 print(
-                    "\nAgentCache looks worthwhile.  Re-run interactively, "
+                    "\nAgentGitSmart looks worthwhile.  Re-run interactively, "
                     "or pass --yes, to scaffold the setup files."
                 )
                 return {
@@ -749,7 +771,7 @@ def run_install_offer(
     if remote_kind in ("other", "none"):
         print(
             "\nNote: your remote is not GitHub, so the GitHub Action template "
-            "was not included.  AGENTS.md and .agentcache are server-agnostic.  "
+            "was not included.  AGENTS.md and .agentgitsmart are server-agnostic.  "
             "See docs/INSTALL.md for the self-hosted post-receive hook."
         )
 
@@ -808,12 +830,12 @@ def _read_origin_remote_url(target: str) -> Optional[str]:
 def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point.  Returns exit code (0 advisory; 1 on bad input)."""
     parser = argparse.ArgumentParser(
-        prog="try_agentcache",
+        prog="try_agentgitsmart",
         description=(
             "Run this in the root of your repo (or pass a path / GitHub URL).\n\n"
-            "Measure whether AgentCache would help YOUR repo, and by how much.\n\n"
+            "Measure whether AgentGitSmart would help YOUR repo, and by how much.\n\n"
             "Runs a real measurement through the testharness byte-counting proxy:\n"
-            "  - COLD pass: builds / seeds agentcache artifacts\n"
+            "  - COLD pass: builds / seeds agentgitsmart artifacts\n"
             "  - WARM pass: steady-state per-agent network bytes\n\n"
             "Reports the saving vs blobless, break-even passes, and a verdict."
         ),
@@ -850,7 +872,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         dest="yes",
         help=(
-            "Automatically accept the offer to scaffold AgentCache files "
+            "Automatically accept the offer to scaffold AgentGitSmart files "
             "(skip the y/N prompt)"
         ),
     )
@@ -882,7 +904,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     tmp_dir: Optional[str] = None
 
     try:
-        tmp_dir = tempfile.mkdtemp(prefix="try_agentcache_")
+        tmp_dir = tempfile.mkdtemp(prefix="try_agentgitsmart_")
         repos_dir = os.path.join(tmp_dir, "repos")
         os.makedirs(repos_dir)
 
@@ -897,7 +919,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         if not args.json:
             print(
-                "Starting git daemon · byte-counting proxy · agentcache service …",
+                "Starting git daemon · byte-counting proxy · agentgitsmart service …",
                 flush=True,
             )
 
