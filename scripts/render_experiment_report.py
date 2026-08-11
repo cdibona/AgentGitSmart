@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Render a human-readable Markdown DIAGNOSTIC of the most recent AgentCache test-harness
+"""Render a human-readable Markdown DIAGNOSTIC of the most recent AgentGitSmart test-harness
 experiment runs and (optionally) copy their raw JSON into the committed results tree.
 
-This report is a DIAGNOSTIC tool for maintainers: it surfaces both where agentcache helps
+This report is a DIAGNOSTIC tool for maintainers: it surfaces both where agentgitsmart helps
 AND where it falls short vs naive/blobless, so the maintainer can find weak spots and
-improve agentcache.  It is not a marketing document.
+improve agentgitsmart.  It is not a marketing document.
 
 Usage:
     python scripts/render_experiment_report.py [--top N] [--no-copy]
@@ -43,7 +43,7 @@ _EXPENSIVE_HOOK_WALL_S = 1.0
 # ---------------------------------------------------------------------------
 
 # Repos smaller than this file count are unlikely to benefit meaningfully
-# from agentcache overhead (small manifest + few targeted blobs).
+# from agentgitsmart overhead (small manifest + few targeted blobs).
 _VERDICT_MIN_FILES = 150
 
 # Warm-saving ratio below this → saving is too marginal to justify overhead.
@@ -53,9 +53,34 @@ _VERDICT_MIN_WARM_RATIO = 0.15
 _VERDICT_MAX_BE_BLOBLESS = 200
 
 # Warm-saving ratio must be at least this AND break-even at most the next
-# threshold to qualify as "agentcache worthwhile".
+# threshold to qualify as "agentgitsmart worthwhile".
 _VERDICT_GOOD_WARM_RATIO = 0.40
 _VERDICT_MAX_BE_GOOD = 50
+
+# --- Three-way (server vs no-server) thresholds ---------------------------------
+# The "blobless_batch" arm (aka AgentGitSmartBlobless) is stock blobless + ONE
+# batched fetch keyed by locally-read OIDs: no server, no hook, no side ref.
+# When it already captures most of what the full AgentGitSmart server buys, the
+# honest recommendation is the light client technique, not the machinery.
+#
+# Fraction of agentgitsmart's warm win (vs lazy blobless) that the batched arm must
+# already capture to be considered "good enough on its own".
+_VERDICT_BATCH_CAPTURES = 0.70
+# The extra warm saving the full server must add BEYOND the batched arm to still
+# justify itself; below this the server is not pulling its weight.
+_VERDICT_MIN_SERVER_EXTRA = 0.15
+
+# Minimum lazy round-trips the batched arm must collapse (to one) for the
+# round-trip case to recommend AgentGitSmartBlobless.  Measurement (exp4_ref_ads)
+# shows batching is BANDWIDTH-neutral, so AgentGitSmartBlobless is recommended for
+# its ROUND-TRIP (latency) win, not a byte win — but only when blobless is
+# already the bandwidth pick.
+_VERDICT_MIN_RT_SAVED = 3
+# Batching must not cost more than this multiple of blobless's bytes to count as
+# "bandwidth-neutral" (it is sometimes a hair more due to pack framing).
+_VERDICT_BATCH_BYTE_TOLERANCE = 1.10
+
+_LABEL_AGENTGITSMART_BLOBLESS = "AgentGitSmartBlobless"
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +165,7 @@ def suitability_verdict(
 
     Args:
         files:             Number of files in the repo tree (None if unknown).
-        warm_saving_ratio: (blobless_warm - agentcache_warm) / blobless_warm,
+        warm_saving_ratio: (blobless_warm - agentgitsmart_warm) / blobless_warm,
                            in the range [0, 1].  None if data unavailable.
         break_even_passes: Ceiling of cold_overhead / warm_saved, i.e. how many
                            warm agent passes pay off the cold overhead.  None if
@@ -150,13 +175,13 @@ def suitability_verdict(
         A *(label, reason)* pair where *label* is one of:
           - ``"blobless is enough"``
           - ``"worth it only at high reuse"``
-          - ``"agentcache worthwhile"``
+          - ``"agentgitsmart worthwhile"``
     """
     # Tier 0: no warm byte win at all → blobless is obviously preferred
     if warm_saving_ratio is None or warm_saving_ratio <= 0:
         return (
             "blobless is enough",
-            "agentcache shows no warm byte win over blobless here",
+            "agentgitsmart shows no warm byte win over blobless here",
         )
 
     pct = round(warm_saving_ratio * 100, 1)
@@ -175,7 +200,7 @@ def suitability_verdict(
         )
         return (
             "blobless is enough",
-            f"small/marginal: ~{pct}% warm saving, {be_note} — not worth agentcache's overhead",
+            f"small/marginal: ~{pct}% warm saving, {be_note} — not worth agentgitsmart's overhead",
         )
 
     # Tier 2: decent saving but high break-even → only pays at heavy reuse
@@ -188,11 +213,131 @@ def suitability_verdict(
             f"pays off only when many agents work per commit (break-even ~{break_even_passes} passes)",
         )
 
-    # Tier 3: meaningful saving AND quick break-even → agentcache worthwhile
+    # Tier 3: meaningful saving AND quick break-even → agentgitsmart worthwhile
     return (
-        "agentcache worthwhile",
+        "agentgitsmart worthwhile",
         f"meaningful warm saving (~{pct}%), break-even ~{break_even_passes} passes",
     )
+
+
+def three_way_verdict(
+    *,
+    files: "int | None",
+    blobless_lazy_warm: "float | None",
+    blobless_batch_warm: "float | None",
+    agentgitsmart_warm: "float | None",
+    break_even_passes: "int | None",
+    blobless_lazy_roundtrips: "float | None" = None,
+    blobless_batch_roundtrips: "float | None" = None,
+) -> "tuple[str, str]":
+    """Return a *(label, reason)* recommendation across the THREE real options.
+
+    Extends :func:`suitability_verdict` with a middle tier by folding in the
+    measured ``blobless_batch`` arm (aka *AgentGitSmartBlobless*: stock blobless +
+    one batched fetch, NO server).  The decision:
+
+      - ``"blobless is enough"``      — nothing beats plain lazy blobless enough
+                                        to bother.
+      - ``"AgentGitSmartBlobless"``      — blobless wins on bytes, but the agent
+                                        makes many lazy per-file fetches that one
+                                        batched fetch collapses to a single
+                                        round-trip with no server.  This is a
+                                        LATENCY win: measurement (exp4_ref_ads)
+                                        shows batching is BANDWIDTH-neutral, so
+                                        it is recommended for round-trips, not
+                                        bytes.  (Also fires in the — empirically
+                                        unobserved — case where batching alone
+                                        would capture a byte win agentgitsmart has.)
+      - ``"agentgitsmart worthwhile"``   — the full server meaningfully beats
+                                        blobless on BYTES (via bundle/symbols).
+      - ``"worth it only at high reuse"`` — passthrough from the base verdict.
+
+    Args:
+        files:               File count in the repo tree (None if unknown).
+        blobless_lazy_warm:  Warm bytes for the ``blobless`` arm (N lazy fetches).
+        blobless_batch_warm: Warm bytes for the ``blobless_batch`` arm (1 batched
+                             fetch, no server).  None → fall back to the two-way
+                             :func:`suitability_verdict`.
+        agentgitsmart_warm:     Warm bytes for the full ``agentgitsmart`` arm.
+        break_even_passes:   Cold-overhead break-even vs blobless (or None).
+        blobless_lazy_roundtrips:  Avg warm fetch round-trips for ``blobless``.
+        blobless_batch_roundtrips: Avg warm fetch round-trips for ``blobless_batch``
+                             (≈1).  Both None → the round-trip case is skipped.
+
+    Returns:
+        A *(label, reason)* pair.
+    """
+    warm_ratio = _safe_ratio(
+        (blobless_lazy_warm - agentgitsmart_warm)
+        if (blobless_lazy_warm is not None and agentgitsmart_warm is not None)
+        else None,
+        blobless_lazy_warm,
+    )
+    base_label, base_reason = suitability_verdict(
+        files=files,
+        warm_saving_ratio=warm_ratio,
+        break_even_passes=break_even_passes,
+    )
+
+    # Without the batched arm's measurement we can only give the two-way answer.
+    if (
+        blobless_batch_warm is None
+        or blobless_lazy_warm is None
+        or agentgitsmart_warm is None
+    ):
+        return base_label, base_reason
+
+    # ── Case A (byte win): batching alone captures most of agentgitsmart's BYTE
+    # saving, so the server isn't pulling its weight.  Kept for completeness;
+    # exp4_ref_ads shows real git makes this essentially never fire (batching is
+    # bandwidth-neutral), but if a workload/transport ever produced it, this is
+    # the right call.
+    if base_label in ("agentgitsmart worthwhile", "worth it only at high reuse"):
+        win_ac = blobless_lazy_warm - agentgitsmart_warm  # server win vs lazy blobless
+        win_batch = blobless_lazy_warm - blobless_batch_warm  # batching win vs lazy
+        server_extra = blobless_batch_warm - agentgitsmart_warm  # server win OVER batching
+        if win_ac > 0:
+            captured = win_batch / win_ac
+            server_extra_ratio = (
+                server_extra / blobless_batch_warm if blobless_batch_warm > 0 else 0.0
+            )
+            if (
+                captured >= _VERDICT_BATCH_CAPTURES
+                and server_extra_ratio < _VERDICT_MIN_SERVER_EXTRA
+            ):
+                return (
+                    _LABEL_AGENTGITSMART_BLOBLESS,
+                    f"a single batched fetch on a plain blobless clone already "
+                    f"captures ~{captured * 100:.0f}% of agentgitsmart's warm saving "
+                    f"with NO server, hook, or side ref; the full cache adds only "
+                    f"~{server_extra_ratio * 100:.0f}% more — use the batched client "
+                    f"technique and skip the machinery",
+                )
+        return base_label, base_reason
+
+    # ── Case B (round-trip win, the empirically real one): blobless is the
+    # bandwidth pick, but the agent issues many lazy per-file fetches.  One
+    # batched fetch collapses them to a single round-trip at the same bandwidth,
+    # with no server.  This is the honest AgentGitSmartBlobless recommendation.
+    if (
+        base_label == "blobless is enough"
+        and blobless_lazy_roundtrips is not None
+        and blobless_batch_roundtrips is not None
+    ):
+        rt_saved = blobless_lazy_roundtrips - blobless_batch_roundtrips
+        byte_neutral = (
+            blobless_batch_warm <= blobless_lazy_warm * _VERDICT_BATCH_BYTE_TOLERANCE
+        )
+        if rt_saved >= _VERDICT_MIN_RT_SAVED and byte_neutral:
+            return (
+                _LABEL_AGENTGITSMART_BLOBLESS,
+                f"blobless wins on bytes here, but the agent makes "
+                f"~{blobless_lazy_roundtrips:.0f} lazy per-file fetches — batch them "
+                f"into ONE (AgentGitSmartBlobless: same bandwidth, ~{rt_saved:.0f} fewer "
+                f"round-trips, no server/hook/side-ref)",
+            )
+
+    return base_label, base_reason
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +356,8 @@ def _render_campaign_row(camp: dict) -> str:
     summ = camp.get("summary", {})
     naive = summ.get("naive", {}) or {}
     blobless = summ.get("blobless", {}) or {}
-    agentcache = summ.get("agentcache", {}) or {}
+    blobless_batch = summ.get("blobless_batch", {}) or {}
+    agentgitsmart = summ.get("agentgitsmart", {}) or {}
     win = summ.get("_win_vs_naive", {}) or {}
 
     def warm(m: dict) -> str:
@@ -230,9 +376,10 @@ def _render_campaign_row(camp: dict) -> str:
         f"| {repo} | {files} "
         f"| {warm(naive)} "
         f"| {warm(blobless)} "
-        f"| {warm(agentcache)} "
-        f"| {cold(agentcache)} "
-        f"| {win_str('agentcache')} |\n"
+        f"| {warm(blobless_batch)} "
+        f"| {warm(agentgitsmart)} "
+        f"| {cold(agentgitsmart)} "
+        f"| {win_str('agentgitsmart')} |\n"
     )
 
 
@@ -316,20 +463,20 @@ def _render_human_step(entry: dict) -> str:
 def _render_cold_start_table(campaigns: list[dict]) -> str:
     """Render the '### Cold start across the three approaches' table.
 
-    Shows naive/blobless/agentcache cold bytes and the ratio agentcache÷blobless,
+    Shows naive/blobless/agentgitsmart cold bytes and the ratio agentgitsmart÷blobless,
     making the bootstrap-bundle penalty visible at a glance.
     Placed BEFORE the cost/benefit table in each experiment section.
     """
     lines: list[str] = []
     lines.append("### Cold start across the three approaches\n\n")
     lines.append(
-        "> **Column caveat:** agentcache cold = full-history blobless clone; "
+        "> **Column caveat:** agentgitsmart cold = full-history blobless clone; "
         "blobless cold = `--depth=1` shallow clone (no history). "
         "These columns are not directly comparable on a bytes basis.\n\n"
     )
     lines.append(
-        "| Repo | naive cold | blobless cold (depth-1 shallow) | agentcache cold (full history) "
-        "| agentcache cold ÷ blobless |\n"
+        "| Repo | naive cold | blobless cold (depth-1 shallow) | agentgitsmart cold (full history) "
+        "| agentgitsmart cold ÷ blobless |\n"
     )
     lines.append(
         "|------|----------:|-------------:|----------------:"
@@ -346,7 +493,7 @@ def _render_cold_start_table(campaigns: list[dict]) -> str:
         summ = camp.get("summary", {})
         naive = summ.get("naive", {}) or {}
         bl = summ.get("blobless", {}) or {}
-        ac = summ.get("agentcache", {}) or {}
+        ac = summ.get("agentgitsmart", {}) or {}
 
         naive_cold: float | None = naive.get("cold_bytes")
         bl_cold: float | None = bl.get("cold_bytes")
@@ -368,15 +515,15 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
     """Render the '### Cost / benefit vs blobless' subsection for one experiment.
 
     For each campaign computes:
-      warm_saved_per_pass = blobless_warm_avg_bytes - agentcache_warm_avg_bytes
-      cold_overhead       = agentcache_cold_bytes   - blobless_cold_bytes
+      warm_saved_per_pass = blobless_warm_avg_bytes - agentgitsmart_warm_avg_bytes
+      cold_overhead       = agentgitsmart_cold_bytes   - blobless_cold_bytes
       break_even_passes   = ceil(cold_overhead / warm_saved_per_pass)
     All None / division-by-zero cases are guarded and shown as '—'.
 
     Verdicts are neutral: they describe the break-even arithmetic without
     promotional framing.  Impractical break-evens (> _IMPRACTICAL_BREAK_EVEN) are
     explicitly called out.  Each row also carries a Recommendation label from
-    suitability_verdict() so maintainers can see at a glance whether agentcache
+    suitability_verdict() so maintainers can see at a glance whether agentgitsmart
     is worth deploying for a given repo.
     """
     lines: list[str] = []
@@ -405,15 +552,17 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
 
         summ = camp.get("summary", {})
         bl = summ.get("blobless", {}) or {}
-        ac = summ.get("agentcache", {}) or {}
+        blb = summ.get("blobless_batch", {}) or {}
+        ac = summ.get("agentgitsmart", {}) or {}
         win = summ.get("_win_vs_naive", {}) or {}
         nfiles: int | None = camp.get("files") or None
 
         bl_warm: float | None = bl.get("warm_avg_bytes")
+        blb_warm: float | None = blb.get("warm_avg_bytes")
         ac_warm: float | None = ac.get("warm_avg_bytes")
         bl_cold: float | None = bl.get("cold_bytes")
         ac_cold: float | None = ac.get("cold_bytes")
-        ac_win: float | None = win.get("agentcache")
+        ac_win: float | None = win.get("agentgitsmart")
 
         # --- warm saved per pass ---
         if bl_warm is None or ac_warm is None:
@@ -443,7 +592,7 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
             # No warm byte win — blobless is the better choice
             break_even: int | None = None
             be_col = "N/A"
-            verdict = "agentcache has no warm byte advantage over blobless — blobless preferred here"
+            verdict = "agentgitsmart has no warm byte advantage over blobless — blobless preferred here"
         elif cold_oh is None:
             break_even = None
             be_col = "unknown"
@@ -458,7 +607,7 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
             be_col = str(break_even)
             if break_even > _IMPRACTICAL_BREAK_EVEN:
                 verdict = (
-                    f"agentcache does NOT repay its cold cost vs blobless "
+                    f"agentgitsmart does NOT repay its cold cost vs blobless "
                     f"within ~{break_even} passes — blobless preferred"
                 )
             else:
@@ -468,14 +617,15 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
                 )
             valid_be.append((repo_short, break_even))
 
-        # --- suitability recommendation ---
-        warm_ratio: float | None = (
-            _safe_ratio(warm_saved, bl_warm) if warm_saved is not None else None
-        )
-        rec_label, _rec_reason = suitability_verdict(
+        # --- suitability recommendation (three-way: folds in blobless_batch) ---
+        rec_label, _rec_reason = three_way_verdict(
             files=nfiles,
-            warm_saving_ratio=warm_ratio,
+            blobless_lazy_warm=bl_warm,
+            blobless_batch_warm=blb_warm,
+            agentgitsmart_warm=ac_warm,
             break_even_passes=break_even,
+            blobless_lazy_roundtrips=bl.get("warm_avg_roundtrips"),
+            blobless_batch_roundtrips=blb.get("warm_avg_roundtrips"),
         )
         rec_counts[rec_label] = rec_counts.get(rec_label, 0) + 1
 
@@ -489,12 +639,15 @@ def _render_cost_benefit(campaigns: list[dict]) -> str:
     # --- Recommendation one-liner (per-experiment aggregate) ---
     total_repos = sum(rec_counts.values())
     if total_repos > 0:
-        worthwhile = rec_counts.get("agentcache worthwhile", 0)
+        worthwhile = rec_counts.get("agentgitsmart worthwhile", 0)
         blobless_ok = rec_counts.get("blobless is enough", 0)
         high_reuse = rec_counts.get("worth it only at high reuse", 0)
+        ac_blobless = rec_counts.get(_LABEL_AGENTGITSMART_BLOBLESS, 0)
         rec_parts = []
         if worthwhile:
-            rec_parts.append(f"{worthwhile} agentcache worthwhile")
+            rec_parts.append(f"{worthwhile} agentgitsmart worthwhile")
+        if ac_blobless:
+            rec_parts.append(f"{ac_blobless} AgentGitSmartBlobless (batched, no server)")
         if blobless_ok:
             rec_parts.append(f"{blobless_ok} blobless-is-enough")
         if high_reuse:
@@ -603,11 +756,11 @@ def _render_server_overhead(campaigns: list[dict]) -> str:
 
 
 def _render_holes_section(featured_exps: list[dict]) -> str:
-    """Render '## Where agentcache has holes (improvement targets)'.
+    """Render '## Where agentgitsmart has holes (improvement targets)'.
 
     Aggregates data across ALL featured experiments and presents weaknesses
     worst-first, each with concrete numbers and repo names.  Four categories:
-      1. Cold-start penalty (agentcache cold ÷ blobless cold ratio)
+      1. Cold-start penalty (agentgitsmart cold ÷ blobless cold ratio)
       2. Marginal warm win (< 25% saving vs blobless on warm passes)
       3. Impractical break-even (> 100 warm passes to repay cold cost)
       4. Expensive per-commit warm overhead (hook wall > 1 s)
@@ -633,7 +786,7 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
             repo = camp.get("repo", "?")
             summ = camp.get("summary", {})
             bl = summ.get("blobless", {}) or {}
-            ac = summ.get("agentcache", {}) or {}
+            ac = summ.get("agentgitsmart", {}) or {}
 
             bl_cold: float | None = bl.get("cold_bytes")
             ac_cold: float | None = ac.get("cold_bytes")
@@ -689,7 +842,7 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
 
     # --- Render the section ---
     lines: list[str] = []
-    lines.append("## Where agentcache has holes (improvement targets)\n\n")
+    lines.append("## Where agentgitsmart has holes (improvement targets)\n\n")
     lines.append(
         "The entries below are engineering improvement targets, not edge-cases. "
         "Data is aggregated across all featured experiments; repos appearing in "
@@ -701,10 +854,10 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
         "### 1. Full-history cold cost (read the caveat — this is NOT a clean defect)\n\n"
     )
     lines.append(
-        "The table shows agentcache's cold-start bytes ÷ blobless's. "
+        "The table shows agentgitsmart's cold-start bytes ÷ blobless's. "
         "**Two measurement artifacts inflate this ratio — do not read it as pure overhead:**\n"
-        "1. **Full-history vs shallow.** agentcache's cold pass is a *full-history* blobless clone "
-        "— it delivers complete history (agentcache's core promise). The blobless column is a "
+        "1. **Full-history vs shallow.** agentgitsmart's cold pass is a *full-history* blobless clone "
+        "— it delivers complete history (agentgitsmart's core promise). The blobless column is a "
         "`--depth=1` *shallow* clone with no history. This compares two different products.\n"
         "2. **Un-amortized vs CDN-cached.** This is one cold agent paying the full first-visit cost. "
         "In production the bootstrap bundle is built once per commit and served as an immutable "
@@ -715,14 +868,14 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
         "(chained via `--bundle-uri`), which shrinks the per-commit artifact from O(history) "
         "to O(delta) *without* losing full history. Also: the harness should measure the "
         "production-realistic cold-WITH-bundle / per-commit-amortized cost (today it hardwires "
-        "cold⇒no-bundle), and an apples-to-apples arm (agentcache vs *full-history* blobless, "
+        "cold⇒no-bundle), and an apples-to-apples arm (agentgitsmart vs *full-history* blobless, "
         "not depth-1).\n\n"
     )
     cold_rows = sorted(cold_by_repo.items(), key=lambda x: x[1][2], reverse=True)
     if cold_rows:
         lines.append(
-            "| Repo | agentcache cold (full history) | blobless cold (depth-1 shallow) "
-            "| ratio (agentcache ÷ blobless) |\n"
+            "| Repo | agentgitsmart cold (full history) | blobless cold (depth-1 shallow) "
+            "| ratio (agentgitsmart ÷ blobless) |\n"
         )
         lines.append(
             "|------|-------------------------------:|--------------------------------:"
@@ -751,16 +904,16 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
     # 2. Marginal warm win
     lines.append("### 2. Marginal warm win (< 25% saving vs blobless)\n\n")
     lines.append(
-        "Repos where agentcache's warm-pass byte saving over blobless is small. "
+        "Repos where agentgitsmart's warm-pass byte saving over blobless is small. "
         "The vs-naive win is large, but that is the easy case; "
-        "if blobless already fetches only a few blobs, agentcache adds little.\n\n"
+        "if blobless already fetches only a few blobs, agentgitsmart adds little.\n\n"
     )
     warm_rows = sorted(
         warm_by_repo.items(), key=lambda x: x[1][2]
     )  # worst (smallest %) first
     if warm_rows:
         lines.append(
-            "| Repo | blobless warm | agentcache warm | saving vs blobless |\n"
+            "| Repo | blobless warm | agentgitsmart warm | saving vs blobless |\n"
         )
         lines.append(
             "|------|-------------:|-----------------:|--------------------:|\n"
@@ -776,7 +929,7 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
             f"> **TODO — improve warm selectivity:** On lean repos like "
             f"**{worst_warm_repo}** the warm saving is only "
             f"{worst_pct * 100:.1f}% vs blobless. "
-            f"Consider skipping or opt-in-only agentcache on repos where the "
+            f"Consider skipping or opt-in-only agentgitsmart on repos where the "
             f"agent's file edit set is small relative to total blobs.\n\n"
         )
     else:
@@ -789,7 +942,7 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
         f"### 3. Impractical break-even (> {_IMPRACTICAL_BREAK_EVEN} warm passes)\n\n"
     )
     lines.append(
-        f"Repos where agentcache needs more than {_IMPRACTICAL_BREAK_EVEN} warm passes "
+        f"Repos where agentgitsmart needs more than {_IMPRACTICAL_BREAK_EVEN} warm passes "
         f"to repay its cold-start overhead vs blobless. "
         f"In realistic agent workflows this break-even is rarely if ever reached, "
         f"making blobless the better default for these repos.\n\n"
@@ -814,7 +967,7 @@ def _render_holes_section(featured_exps: list[dict]) -> str:
             f"> **TODO — gate on repo heuristics:** {len(be_rows)} repo(s) have break-even "
             f"> {_IMPRACTICAL_BREAK_EVEN} passes (worst: **{worst_be_repo}** at {worst_be} passes). "
             f"For these repos, blobless is the practical default. "
-            f"Fix: gate agentcache on a repo-size or history-depth heuristic, "
+            f"Fix: gate agentgitsmart on a repo-size or history-depth heuristic, "
             f"or reduce the bundle footprint on shallow histories.\n\n"
         )
     else:
@@ -873,11 +1026,11 @@ def _render_experiment(exp: dict) -> str:
     if campaigns:
         lines.append(
             "| Repo | files | naive (warm) | blobless (warm) "
-            "| agentcache (warm) | agentcache cold | win vs naive |\n"
+            "| blobless+batch (warm) | agentgitsmart (warm) | agentgitsmart cold | win vs naive |\n"
         )
         lines.append(
             "|------|------:|-------------:|----------------:"
-            "|------------------:|----------------:|-------------:|\n"
+            "|---------------------:|------------------:|----------------:|-------------:|\n"
         )
         for camp in campaigns:
             lines.append(_render_campaign_row(camp))
@@ -920,7 +1073,7 @@ def _render_experiment(exp: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Render a Markdown diagnostic of the most recent AgentCache experiments."
+        description="Render a Markdown diagnostic of the most recent AgentGitSmart experiments."
     )
     parser.add_argument(
         "--experiments-dir",
@@ -995,20 +1148,20 @@ def main() -> None:
     md_lines: list[str] = []
 
     # Title + diagnostic intro
-    md_lines.append("# AgentCache experiment diagnostic\n\n")
+    md_lines.append("# AgentGitSmart experiment diagnostic\n\n")
     md_lines.append(
         "This is a **diagnostic report for maintainers**, not a marketing document. "
-        "Its purpose is to surface both where agentcache helps AND where it falls short "
+        "Its purpose is to surface both where agentgitsmart helps AND where it falls short "
         "vs naive and blobless, so that weak spots can be found and fixed. "
         "Data comes from real runs of the [test harness](../testharness/) measuring three "
         "git-fetch strategies — **naive** (full clone), **blobless** (`--filter=blob:none`), "
-        "and **agentcache** (targeted blob fetch via the pre-built manifest + symbol cache). "
+        "and **agentgitsmart** (targeted blob fetch via the pre-built manifest + symbol cache). "
         "Each experiment runs multiple agent passes per repo: **pass 1 is COLD** "
-        "(agentcache downloads its bootstrap bundle and builds its cache from scratch), "
+        "(agentgitsmart downloads its bootstrap bundle and builds its cache from scratch), "
         "and **later passes are WARM** (only the requested blobs are fetched). "
-        "**Column caveat:** the agentcache cold column delivers *full history* (full-history blobless clone, no depth limit); the blobless column uses `--depth=1` (shallow, no history) — the two cold columns are not directly comparable on a bytes basis. "
-        "**Framing:** naive is the easy strawman; the real test is agentcache vs blobless. "
-        "agentcache carries two costs that blobless does not: "
+        "**Column caveat:** the agentgitsmart cold column delivers *full history* (full-history blobless clone, no depth limit); the blobless column uses `--depth=1` (shallow, no history) — the two cold columns are not directly comparable on a bytes basis. "
+        "**Framing:** naive is the easy strawman; the real test is agentgitsmart vs blobless. "
+        "agentgitsmart carries two costs that blobless does not: "
         "(1) a large COLD bootstrap bundle whose size scales with repo history depth, "
         "and (2) a per-commit server-side warm overhead on every human push. "
         "Both costs are exposed in detail below.\n\n"

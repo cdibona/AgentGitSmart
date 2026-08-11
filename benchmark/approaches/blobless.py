@@ -2,13 +2,13 @@
 
 ``git clone --filter=blob:none`` downloads commits + trees but defers
 every blob to a lazy per-object promisor fetch.  This is the "smart"
-middle ground that's possible without agentcache: the clone is fast and
+middle ground that's possible without agentgitsmart: the clone is fast and
 small, but accessing any file still triggers an individual round-trip.
 
 We simulate an agent that only needs ``target_paths``: after the
 blobless clone we call ``git checkout HEAD -- <paths>`` which triggers
 one lazy fetch *per blob*.  For N target files that is N round-trips
-(in theory one pack per file), compared with agentcache's single batch.
+(in theory one pack per file), compared with agentgitsmart's single batch.
 """
 from __future__ import annotations
 

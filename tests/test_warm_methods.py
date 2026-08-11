@@ -3,7 +3,7 @@
 Covers:
   - ExperimentConfig.warm_method default and explicit values.
   - run_action_generate() builds a real cache ref via the github-action
-    equivalent subprocess (scripts/generate_agentcache.py) and returns a
+    equivalent subprocess (scripts/generate_agentgitsmart.py) and returns a
     well-formed result dict.
 
 These tests are Docker-free and fast: run_action_generate spawns a subprocess
@@ -24,7 +24,7 @@ from tests.conftest import make_commit
 
 def test_warm_method_config_default():
     """ExperimentConfig.warm_method defaults to 'hook' — backward-compatible."""
-    cfg = ExperimentConfig(repos=["testrepo"], methods=["agentcache"])
+    cfg = ExperimentConfig(repos=["testrepo"], methods=["agentgitsmart"])
     assert cfg.warm_method == "hook"
 
 
@@ -32,7 +32,7 @@ def test_warm_method_config_explicit_values():
     """ExperimentConfig accepts all three valid warm_method strings."""
     for value in ("hook", "action", "both"):
         cfg = ExperimentConfig(
-            repos=["testrepo"], methods=["agentcache"], warm_method=value
+            repos=["testrepo"], methods=["agentgitsmart"], warm_method=value
         )
         assert cfg.warm_method == value, f"Expected {value!r}, got {cfg.warm_method!r}"
 
@@ -48,7 +48,7 @@ def test_action_build_creates_cache(repo):
     Assertions:
       - returncode == 0 (script exited cleanly)
       - generation block has mode in {"full", "delta"}
-      - refs/agent-cache/<commit> now exists in the repo
+      - refs/agent-git-smart/<commit> now exists in the repo
       - bundle_bytes > 0 (the blobless bundle was written)
     """
     r, commit0 = repo
@@ -67,7 +67,7 @@ def test_action_build_creates_cache(repo):
     )
 
     assert result["returncode"] == 0, (
-        f"generate_agentcache.py failed (rc={result['returncode']}): "
+        f"generate_agentgitsmart.py failed (rc={result['returncode']}): "
         f"{result.get('error')}"
     )
 
@@ -77,7 +77,7 @@ def test_action_build_creates_cache(repo):
     )
 
     # The cache side-ref must have been written.
-    ref_name = f"refs/agent-cache/{new_commit}"
+    ref_name = f"refs/agent-git-smart/{new_commit}"
     assert ref_name in r.references, (
         f"Cache ref {ref_name!r} was not created by run_action_generate"
     )

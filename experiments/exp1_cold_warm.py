@@ -1,13 +1,13 @@
 """Experiment 1 — Cold vs warm cache across the five projects.
 
 For each repo:
-  1. Erase any existing agentcache artifacts (start from nothing).
-  2. For each method (naive, blobless, agentcache):
+  1. Erase any existing agentgitsmart artifacts (start from nothing).
+  2. For each method (naive, blobless, blobless_batch, agentgitsmart):
        run the 2%-of-files agentic task N times (default 5).
 
 What it shows:
   - naive / blobless have no cache, so all N runs are a flat baseline.
-  - agentcache run #1 is the "expensive first visit": it triggers the
+  - agentgitsmart run #1 is the "expensive first visit": it triggers the
     server to build the cache (lazy generation).  Runs #2..N are "warm":
     the cache already exists, so the resolve is instant.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 from .harness import ExperimentHarness, ALL_REPOS, fmt_bytes
 
 RESULTS = Path(__file__).resolve().parent / "results"
-METHODS = ["naive", "blobless", "agentcache"]
+METHODS = ["naive", "blobless", "blobless_batch", "agentgitsmart"]
 
 
 async def run(repos, iterations: int, pct: float, base_seed: int) -> dict:
@@ -44,7 +44,7 @@ async def run(repos, iterations: int, pct: float, base_seed: int) -> dict:
                     )
                     runs.append(res.to_dict())
                     tag = ""
-                    if method == "agentcache":
+                    if method == "agentgitsmart":
                         tag = "COLD-build" if res.cache_built_this_run else "warm"
                     err = f" ERROR={res.error[:40]}" if res.error else ""
                     print(
@@ -74,13 +74,13 @@ async def run(repos, iterations: int, pct: float, base_seed: int) -> dict:
 
 
 def _summarize(report: dict) -> None:
-    """Print the cold-vs-warm contrast for agentcache, per repo."""
+    """Print the cold-vs-warm contrast for agentgitsmart, per repo."""
     print("\n" + "=" * 72)
-    print("SUMMARY — agentcache cold (first visit) vs warm (subsequent)")
+    print("SUMMARY — agentgitsmart cold (first visit) vs warm (subsequent)")
     print("=" * 72)
     runs = report["runs"]
     for repo in report["repos"]:
-        ac = [r for r in runs if r["repo"] == repo and r["method"] == "agentcache"]
+        ac = [r for r in runs if r["repo"] == repo and r["method"] == "agentgitsmart"]
         if not ac:
             continue
         cold = next((r for r in ac if r["cache_built_this_run"]), None)

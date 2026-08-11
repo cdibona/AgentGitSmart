@@ -1,4 +1,4 @@
-# agentcache experiments
+# agentgitsmart experiments
 
 **→ [`RECENT.md`](RECENT.md) — a readable digest of the most recent harness
 runs** (what each run did, per-repo win-vs-naive tables, the per-human-commit
@@ -7,9 +7,9 @@ with `python scripts/render_experiment_report.py`; raw JSON lives under
 [`results/harness/`](results/harness/).
 
 Three studies that compare the three repo-access methods — **naive**,
-**blobless**, **agentcache** — across the five collected CPython-sized
+**blobless**, **agentgitsmart** — across the five collected CPython-sized
 projects (`cpython`, `django`, `go`, `git`, `redis`), and probe the
-agentcache cache lifecycle.
+agentgitsmart cache lifecycle.
 
 Each agent run performs a real agentic task: discover all source files,
 select a deterministic 2 %, add `!` to one comment per file, and commit
@@ -20,7 +20,7 @@ locally — measured end-to-end through a byte-counting proxy.
 ```bash
 # The five repos must be mirrored under benchmark/repos/<name>.git
 # and blobless bootstrap bundles under benchmark/bundles/<name>.git-<branch>.bundle
-# (both are produced by the setup steps; bundles let agentcache seed history
+# (both are produced by the setup steps; bundles let agentgitsmart seed history
 #  from a local/CDN file instead of the git server).
 ```
 
@@ -32,7 +32,7 @@ python -m experiments.exp1_cold_warm --repos redis --iterations 3
 ```
 
 For each repo it **erases any existing cache first** (starts from nothing),
-then runs each method N times. The first agentcache visit is the *cold*
+then runs each method N times. The first agentgitsmart visit is the *cold*
 build (it triggers lazy generation server-side); subsequent visits are
 *warm* (the cache already exists). naive/blobless have no cache, so they
 form a flat baseline.
@@ -46,7 +46,7 @@ python -m experiments.exp2_taint --repos redis git django
 ```
 
 Builds + uses the cache with an aware agent, fingerprints the cache refs,
-then runs **non-agentcache-aware** agents (naive + blobless) against the
+then runs **non-agentgitsmart-aware** agents (naive + blobless) against the
 same repo, and re-checks. Because the cache is keyed by immutable commit
 OID and lives in side refs the agents only *read*, read-only non-aware
 agents leave it **pristine** — verified by comparing ref fingerprints
@@ -60,9 +60,9 @@ before/after and confirming the aware agent's warm path is unchanged.
 python -m experiments.exp3_hook_update
 ```
 
-On a throwaway bare repo with the agentcache `post-receive` hook installed,
-a human (no agentcache awareness) clones, edits, commits, and pushes. The
-hook fires on the server and writes `refs/agent-cache/<new-oid>`
+On a throwaway bare repo with the agentgitsmart `post-receive` hook installed,
+a human (no agentgitsmart awareness) clones, edits, commits, and pushes. The
+hook fires on the server and writes `refs/agent-git-smart/<new-oid>`
 automatically. Verifies the new commit's cache exists, its manifest
 reflects the human's change, and a second push produces a second cache ref.
 
@@ -74,7 +74,7 @@ reflects the human's change, and a second push produces a second cache ref.
 |-----------|----------|----------|-----------|
 | Cache (manifest + symbols) | post-receive hook **or** lazy gen on first request | commit OID | immutable per commit; new commit → new cache; symbol index uses delta re-indexing (changed files only per push); `meta.json` includes a `generation` block with `mode`, `files_reindexed`, `files_carried_forward`, and `fallback_reason` |
 | Bundle (history seed) | post-receive hook (or pre-built) | branch | refreshed on push |
-| Erase | `agentcache-uninstall` | — | removes all side refs + gc |
+| Erase | `agentgitsmart-uninstall` | — | removes all side refs + gc |
 
 The cache cannot be corrupted by read-only agents; it is only ever *added
 to* (lazy gen / hook) or *removed* (uninstall). Human pushes keep it

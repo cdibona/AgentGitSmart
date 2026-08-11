@@ -2,15 +2,15 @@
 
 Lifecycle
 ---------
-  startup  → start git daemon → start counting proxy → (agentcache
+  startup  → start git daemon → start counting proxy → (agentgitsmart
              service starts on first test run, per repo)
-  shutdown → stop proxy → stop git daemon → stop agentcache service
+  shutdown → stop proxy → stop git daemon → stop agentgitsmart service
 
 Ports (all localhost)
 ---------------------
   9418  git daemon  (git:// protocol)
   9419  counting proxy  (git:// forwarded to 9418, bytes counted)
-  8765  agentcache query service
+  8765  agentgitsmart query service
   8080  this web app
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from . import docker_runner
 from .experiment_runner import ExperimentRunner, describe_experiment
 from .models import ExperimentConfig, RunConfig, SystemStatus
-from .processes import AgentCacheService, GitDaemon
+from .processes import AgentGitSmartService, GitDaemon
 from .proxy import ByteCountingProxy
 from .runner import TestRunner
 from .storage import ResultStorage
@@ -49,11 +49,11 @@ _REPO_ROOT = _HERE.parent
 _REPOS_DIR = str(_REPO_ROOT / "benchmark" / "repos")
 _DB_PATH = str(_HERE / "data" / "runs.db")
 
-GIT_PORT = int(os.environ.get("AGENTCACHE_GIT_PORT", "9418"))
-PROXY_PORT = int(os.environ.get("AGENTCACHE_PROXY_PORT", "9419"))
-SVC_PORT = int(os.environ.get("AGENTCACHE_SVC_PORT", "8765"))
-WEB_PORT = int(os.environ.get("AGENTCACHE_WEB_PORT", "8080"))
-WEB_HOST = os.environ.get("AGENTCACHE_WEB_HOST", "127.0.0.1")
+GIT_PORT = int(os.environ.get("AGENTGITSMART_GIT_PORT", "9418"))
+PROXY_PORT = int(os.environ.get("AGENTGITSMART_PROXY_PORT", "9419"))
+SVC_PORT = int(os.environ.get("AGENTGITSMART_SVC_PORT", "8765"))
+WEB_PORT = int(os.environ.get("AGENTGITSMART_WEB_PORT", "8080"))
+WEB_HOST = os.environ.get("AGENTGITSMART_WEB_HOST", "127.0.0.1")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 
 _git_daemon: Optional[GitDaemon] = None
 _proxy: Optional[ByteCountingProxy] = None
-_agentcache_svc: Optional[AgentCacheService] = None
+_agentgitsmart_svc: Optional[AgentGitSmartService] = None
 _runner: Optional[TestRunner] = None
 _storage: Optional[ResultStorage] = None
 _exp_runner: Optional[ExperimentRunner] = None
@@ -118,7 +118,7 @@ def _list_repos() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _git_daemon, _proxy, _agentcache_svc, _runner, _storage, _exp_runner
+    global _git_daemon, _proxy, _agentgitsmart_svc, _runner, _storage, _exp_runner
 
     _storage = ResultStorage(_DB_PATH)
 
@@ -127,7 +127,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _git_daemon = GitDaemon(_REPOS_DIR, port=GIT_PORT)
     _proxy = ByteCountingProxy("127.0.0.1", PROXY_PORT, "127.0.0.1", GIT_PORT)
-    _agentcache_svc = AgentCacheService(port=SVC_PORT)
+    _agentgitsmart_svc = AgentGitSmartService(port=SVC_PORT)
 
     git_ok = await _git_daemon.start()
     if not git_ok:
@@ -141,12 +141,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         proxy=_proxy,
         repos_dir=_REPOS_DIR,
         git_proxy_port=PROXY_PORT,
-        agentcache_port=SVC_PORT,
+        agentgitsmart_port=SVC_PORT,
     )
 
     _exp_runner = ExperimentRunner(
         proxy=_proxy,
-        agentcache_svc=_agentcache_svc,
+        agentgitsmart_svc=_agentgitsmart_svc,
         repos_dir=_REPOS_DIR,
         proxy_port=PROXY_PORT,
         svc_port=SVC_PORT,
@@ -158,7 +158,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await _proxy.stop()
     await _git_daemon.stop()
-    await _agentcache_svc.stop()
+    await _agentgitsmart_svc.stop()
     log.info("Test harness shut down.")
 
 
@@ -166,7 +166,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="AgentCache Test Harness", lifespan=lifespan)
+app = FastAPI(title="AgentGitSmart Test Harness", lifespan=lifespan)
 
 # Mount static files
 _STATIC_DIR = _HERE / "static"
@@ -195,8 +195,8 @@ async def status() -> SystemStatus:
         git_daemon_port=GIT_PORT,
         proxy=_proxy.is_running if _proxy else False,
         proxy_port=PROXY_PORT,
-        agentcache_service=_agentcache_svc.is_running if _agentcache_svc else False,
-        agentcache_port=SVC_PORT,
+        agentgitsmart_service=_agentgitsmart_svc.is_running if _agentgitsmart_svc else False,
+        agentgitsmart_port=SVC_PORT,
         repos=_list_repos(),
         docker_available=docker_runner.is_docker_available(),
     )
@@ -224,7 +224,7 @@ async def get_run(run_id: str) -> dict:
 
 @app.post("/api/runs")
 async def start_run(config: RunConfig) -> dict:
-    assert _runner and _storage and _agentcache_svc
+    assert _runner and _storage and _agentgitsmart_svc
 
     if not _list_repos():
         raise HTTPException(
@@ -241,7 +241,7 @@ async def start_run(config: RunConfig) -> dict:
     _storage.create_run(run_id, created_at, config)
     _runner.register_queue(run_id)
 
-    # Start the agentcache service for this repo (restart if needed).
+    # Start the agentgitsmart service for this repo (restart if needed).
     repo_path = str(Path(_REPOS_DIR) / config.repo_name)
     asyncio.create_task(_start_and_run(run_id, config, repo_path))
 
@@ -249,13 +249,13 @@ async def start_run(config: RunConfig) -> dict:
 
 
 async def _start_and_run(run_id: str, config: RunConfig, repo_path: str) -> None:
-    assert _runner and _storage and _agentcache_svc
+    assert _runner and _storage and _agentgitsmart_svc
     try:
-        svc_ok = await _agentcache_svc.switch_repo(repo_path)
-        if not svc_ok and "agentcache" in config.approaches:
+        svc_ok = await _agentgitsmart_svc.switch_repo(repo_path)
+        if not svc_ok and "agentgitsmart" in config.approaches:
             _runner._log(
                 run_id,
-                "WARNING: agentcache service did not start; agentcache approach may fail",
+                "WARNING: agentgitsmart service did not start; agentgitsmart approach may fail",
             )
 
         results = await _runner.execute(

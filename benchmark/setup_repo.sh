@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # benchmark/setup_repo.sh
 #
-# Initialise a LOCAL bare git repo for benchmarking agentcache.
+# Initialise a LOCAL bare git repo for benchmarking agentgitsmart.
 # Everything stays on this machine — no public repositories are touched.
 #
 # TYPICAL WORKFLOW
@@ -13,9 +13,9 @@
 #       --source /path/to/your/local/cpython-clone \
 #       benchmark/repos/cpython.git
 #
-#   # 2. Start the agentcache service in one terminal:
-#   AGENTCACHE_REPO_DIR=benchmark/repos/cpython.git \
-#       .venv/bin/python -m agentcache.service &
+#   # 2. Start the agentgitsmart service in one terminal:
+#   AGENTGITSMART_REPO_DIR=benchmark/repos/cpython.git \
+#       .venv/bin/python -m agentgitsmart.service &
 #
 #   # 3. Run the benchmark in another:
 #   .venv/bin/python -m benchmark.run \
@@ -143,27 +143,27 @@ PYEOF
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Configure the repo for agentcache and filtered fetches.
+# Step 2: Configure the repo for agentgitsmart and filtered fetches.
 # ---------------------------------------------------------------------------
 echo "==> Configuring uploadpack settings..."
 git --git-dir="$DEST_ABS" config uploadpack.allowFilter       true
 git --git-dir="$DEST_ABS" config uploadpack.allowanysha1inwant true
 
 # ---------------------------------------------------------------------------
-# Step 3: Generate the agentcache artifacts for HEAD on every branch.
+# Step 3: Generate the agentgitsmart artifacts for HEAD on every branch.
 # ---------------------------------------------------------------------------
-echo "==> Generating agentcache cache artifacts..."
-AGENTCACHE_REPO_DIR="$DEST_ABS" \
+echo "==> Generating agentgitsmart cache artifacts..."
+AGENTGITSMART_REPO_DIR="$DEST_ABS" \
     python3 - "$DEST_ABS" <<'PYEOF'
 import sys, json, os, pygit2
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agentcache.config import AgentCacheConfig
-from agentcache.hook import generate_for_commit
+from agentgitsmart.config import AgentGitSmartConfig
+from agentgitsmart.hook import generate_for_commit
 
 repo_dir = sys.argv[1]
 r = pygit2.Repository(repo_dir)
-cfg = AgentCacheConfig(repo_dir=repo_dir)
+cfg = AgentGitSmartConfig(repo_dir=repo_dir)
 
 generated = 0
 for ref_name in r.references:
@@ -195,9 +195,9 @@ echo "Repo:  $DEST_ABS"
 echo ""
 echo "Next steps:"
 echo ""
-echo "  1. Start the agentcache service:"
-echo "     AGENTCACHE_REPO_DIR=$DEST_ABS \\"
-echo "         .venv/bin/python -m agentcache.service &"
+echo "  1. Start the agentgitsmart service:"
+echo "     AGENTGITSMART_REPO_DIR=$DEST_ABS \\"
+echo "         .venv/bin/python -m agentgitsmart.service &"
 echo ""
 echo "  2. Run the benchmark (examples):"
 echo ""

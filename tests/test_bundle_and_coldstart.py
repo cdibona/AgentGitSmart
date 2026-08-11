@@ -11,7 +11,7 @@ import subprocess
 
 import pygit2
 
-from agentcache import bundle as bundle_mod
+from agentgitsmart import bundle as bundle_mod
 
 
 def _git(*args, **kw):

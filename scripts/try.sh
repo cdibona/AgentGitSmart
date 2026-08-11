@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# scripts/try.sh — AgentCache "try before you adopt" one-liner
+# scripts/try.sh — AgentGitSmart "try before you adopt" one-liner
 #
 # Shell target: bash (requires pipefail and arrays). Use "| bash", not "| sh".
 #
 # SECURITY: Piping a remote script to a shell executes whatever the server
 # returns at the moment of invocation — inspect before running:
 #
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | less
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | less
 #   # or: save, inspect, then run:
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh -o try.sh
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh -o try.sh
 #   less try.sh && bash try.sh
 #
-# This script is hosted in the AgentCache repository and is reviewable in
+# This script is hosted in the AgentGitSmart repository and is reviewable in
 # version control — the same commit your system will run.
 #
 # ---------------------------------------------------------------------------
 # Canonical one-liner (run from YOUR repo root — measures that repo):
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | bash
 #
 # With an explicit target (path or GitHub URL):
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash -s -- /path/to/repo
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash -s -- https://github.com/user/repo.git
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | bash -s -- /path/to/repo
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | bash -s -- https://github.com/user/repo.git
 #
-# Extra flags are passed through to try_agentcache.py:
-#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentCache/main/scripts/try.sh | bash -s -- /path/to/repo --json
+# Extra flags are passed through to try_agentgitsmart.py:
+#   curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | bash -s -- /path/to/repo --json
 #
 # What this script does (nothing is installed permanently):
-#   1. Shallow-clones AgentCache to a temp dir  (tooling only — not measured)
+#   1. Shallow-clones AgentGitSmart to a temp dir  (tooling only — not measured)
 #   2. Creates an isolated venv in that temp dir
 #   3. Measures YOUR repo at TARGET (cwd by default)
 #   4. Removes the temp dir unconditionally on exit
@@ -39,7 +39,7 @@ set -euo pipefail
 #
 # $1 = optional repo path or URL (default: caller's $PWD)
 # Remaining positional args ($2, $3, …) are passed through to
-# try_agentcache.py as extra flags (--json, --verbose, etc.).
+# try_agentgitsmart.py as extra flags (--json, --verbose, etc.).
 # ---------------------------------------------------------------------------
 TARGET="${1:-$PWD}"
 
@@ -51,26 +51,26 @@ EXTRA_ARGS=("$@")
 
 # ---------------------------------------------------------------------------
 # Temp dir: created once, removed unconditionally on EXIT.
-# The AgentCache clone lives here; the user's repo is NOT touched.
+# The AgentGitSmart clone lives here; the user's repo is NOT touched.
 # ---------------------------------------------------------------------------
-TMP_DIR="$(mktemp -d -t try_agentcache_XXXXXX)"
+TMP_DIR="$(mktemp -d -t try_agentgitsmart_XXXXXX)"
 
 cleanup() {
     rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
-AGENTCACHE_CLONE="$TMP_DIR/AgentCache"
+AGENTGITSMART_CLONE="$TMP_DIR/AgentGitSmart"
 
 # ---------------------------------------------------------------------------
 # Banner
 # ---------------------------------------------------------------------------
 printf '\n'
 printf '================================================================\n'
-printf '  AgentCache — try before you adopt\n'
+printf '  AgentGitSmart — try before you adopt\n'
 printf '================================================================\n'
 printf '  Measuring:   %s\n' "$TARGET"
-printf '  Tooling dir: %s  (temp, deleted on exit)\n' "$AGENTCACHE_CLONE"
+printf '  Tooling dir: %s  (temp, deleted on exit)\n' "$AGENTGITSMART_CLONE"
 printf '================================================================\n'
 printf '\n'
 
@@ -88,13 +88,13 @@ if ! command -v python3 > /dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 1/3 — Shallow-clone AgentCache tooling into the temp dir.
+# Step 1/3 — Shallow-clone AgentGitSmart tooling into the temp dir.
 #            This clone provides the harness code only; it is NOT the repo
 #            being measured (TARGET is).
 # ---------------------------------------------------------------------------
-printf '  [1/3] Cloning AgentCache tooling (shallow) ...\n'
+printf '  [1/3] Cloning AgentGitSmart tooling (shallow) ...\n'
 git clone --depth=1 --quiet \
-    https://github.com/cdibona/AgentCache "$AGENTCACHE_CLONE"
+    https://github.com/cdibona/AgentGitSmart "$AGENTGITSMART_CLONE"
 
 # ---------------------------------------------------------------------------
 # Step 2/3 — Create an isolated venv and install harness dependencies.
@@ -102,18 +102,18 @@ git clone --depth=1 --quiet \
 # ---------------------------------------------------------------------------
 printf '  [2/3] Creating venv and installing dependencies ...\n'
 
-python3 -m venv "$AGENTCACHE_CLONE/.venv"
+python3 -m venv "$AGENTGITSMART_CLONE/.venv"
 
-"$AGENTCACHE_CLONE/.venv/bin/pip" install --quiet --upgrade pip
-"$AGENTCACHE_CLONE/.venv/bin/pip" install --quiet \
+"$AGENTGITSMART_CLONE/.venv/bin/pip" install --quiet --upgrade pip
+"$AGENTGITSMART_CLONE/.venv/bin/pip" install --quiet \
     "pygit2>=1.15"            \
     "Flask>=3.0"              \
     "python-dotenv>=1.0"      \
     "fastapi>=0.111"          \
     "uvicorn[standard]>=0.29" \
     "aiofiles>=23"
-# Install agentcache itself as editable so scripts/ is importable.
-"$AGENTCACHE_CLONE/.venv/bin/pip" install --quiet -e "$AGENTCACHE_CLONE"
+# Install agentgitsmart itself as editable so scripts/ is importable.
+"$AGENTGITSMART_CLONE/.venv/bin/pip" install --quiet -e "$AGENTGITSMART_CLONE"
 
 # universal-ctags is optional; without it the symbol index will be empty.
 if ! command -v ctags > /dev/null 2>&1; then
@@ -122,19 +122,19 @@ if ! command -v ctags > /dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3/3 — Measure TARGET (the user's repo — NOT the AgentCache clone).
+# Step 3/3 — Measure TARGET (the user's repo — NOT the AgentGitSmart clone).
 #
-# try_agentcache.py is invoked with $TARGET as the first argument so it
-# measures the user's repo, not $AGENTCACHE_CLONE.
+# try_agentgitsmart.py is invoked with $TARGET as the first argument so it
+# measures the user's repo, not $AGENTGITSMART_CLONE.
 # Extra flags (--json, --verbose, …) follow via ${EXTRA_ARGS[@]}.
 # ---------------------------------------------------------------------------
 printf '  [3/3] Running measurement on: %s\n' "$TARGET"
 printf '\n'
-printf '  (Starts a git daemon + byte-counting proxy + agentcache service on\n'
+printf '  (Starts a git daemon + byte-counting proxy + agentgitsmart service on\n'
 printf '   ephemeral ports — no system ports are touched, no state persists.)\n'
 printf '\n'
 
-"$AGENTCACHE_CLONE/.venv/bin/python" \
-    "$AGENTCACHE_CLONE/scripts/try_agentcache.py" \
+"$AGENTGITSMART_CLONE/.venv/bin/python" \
+    "$AGENTGITSMART_CLONE/scripts/try_agentgitsmart.py" \
     "$TARGET" \
     "${EXTRA_ARGS[@]}"

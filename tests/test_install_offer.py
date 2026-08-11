@@ -1,10 +1,10 @@
-"""Tests for the verdict-gated install-offer flow, agentcache.generate, and adopter workflow.
+"""Tests for the verdict-gated install-offer flow, agentgitsmart.generate, and adopter workflow.
 
 Three tiers of coverage (all pure-function / fast — no network / daemon):
-  1. Pure functions in scripts/try_agentcache.py:
+  1. Pure functions in scripts/try_agentgitsmart.py:
        should_offer_install, detect_remote_kind, plan_scaffold, apply_scaffold
        run_install_offer (shell orchestrator — uses assume_yes to avoid /dev/tty)
-  2. agentcache.generate.main() — Part 1 packaged entrypoint
+  2. agentgitsmart.generate.main() — Part 1 packaged entrypoint
   3. docs/adopter-workflow.yml — Part 2 adopter template
 
 TDD: tests were written before the implementation (RED → GREEN).
@@ -24,14 +24,14 @@ import yaml
 # Module-level imports — will fail (RED) until the implementation exists
 # ---------------------------------------------------------------------------
 
-from scripts.try_agentcache import (  # noqa: E402
+from scripts.try_agentgitsmart import (  # noqa: E402
     should_offer_install,
     detect_remote_kind,
     plan_scaffold,
     apply_scaffold,
     run_install_offer,
 )
-from agentcache.generate import main as generate_main  # noqa: E402
+from agentgitsmart.generate import main as generate_main  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,12 +48,12 @@ def tooling_root(tmp_path: Path) -> Path:
     root.mkdir()
     (root / "docs").mkdir()
     (root / "docs" / "adopter-workflow.yml").write_text(
-        "# adopter-workflow stub\nname: AgentCache adopter\n"
+        "# adopter-workflow stub\nname: AgentGitSmart adopter\n"
     )
     (root / "docs" / "ADOPTER_AGENTS_TEMPLATE.md").write_text(
         "# Agent Instructions — `<REPO_NAME>`\n"
     )
-    (root / ".agentcache.example").write_text('service_url = "https://example.com"\n')
+    (root / ".agentgitsmart.example").write_text('service_url = "https://example.com"\n')
     return root
 
 
@@ -106,11 +106,11 @@ class TestShouldOfferInstall:
     """Full decision matrix for should_offer_install."""
 
     def test_worthwhile_and_worktree_is_true(self):
-        assert should_offer_install("agentcache worthwhile", True) is True
+        assert should_offer_install("agentgitsmart worthwhile", True) is True
 
     def test_worthwhile_but_not_worktree_is_false(self):
         """Do not offer when target is a URL / bare repo."""
-        assert should_offer_install("agentcache worthwhile", False) is False
+        assert should_offer_install("agentgitsmart worthwhile", False) is False
 
     def test_high_reuse_and_worktree_is_false(self):
         assert should_offer_install("worth it only at high reuse", True) is False
@@ -126,7 +126,7 @@ class TestShouldOfferInstall:
 
     def test_case_sensitive_label_mismatch_is_false(self):
         """Verdict labels are case-sensitive — partial match must not trigger."""
-        assert should_offer_install("AgentCache Worthwhile", True) is False
+        assert should_offer_install("AgentGitSmart Worthwhile", True) is False
 
 
 # ===========================================================================
@@ -174,17 +174,17 @@ class TestPlanScaffold:
     def test_github_plan_includes_workflow(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
         dests = [item["dest"] for item in plan]
-        assert ".github/workflows/agentcache.yml" in dests
+        assert ".github/workflows/agentgitsmart.yml" in dests
 
     def test_other_remote_plan_excludes_workflow(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "other")
         dests = [item["dest"] for item in plan]
-        assert ".github/workflows/agentcache.yml" not in dests
+        assert ".github/workflows/agentgitsmart.yml" not in dests
 
     def test_none_remote_plan_excludes_workflow(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "none")
         dests = [item["dest"] for item in plan]
-        assert ".github/workflows/agentcache.yml" not in dests
+        assert ".github/workflows/agentgitsmart.yml" not in dests
 
     def test_plan_always_includes_agents_md(self, tooling_root, target_dir):
         for kind in ("github", "other", "none"):
@@ -192,11 +192,11 @@ class TestPlanScaffold:
             dests = [item["dest"] for item in plan]
             assert "AGENTS.md" in dests, f"AGENTS.md missing for remote_kind={kind!r}"
 
-    def test_plan_always_includes_agentcache_dot(self, tooling_root, target_dir):
+    def test_plan_always_includes_agentgitsmart_dot(self, tooling_root, target_dir):
         for kind in ("github", "other", "none"):
             plan = plan_scaffold(str(tooling_root), str(target_dir), kind)
             dests = [item["dest"] for item in plan]
-            assert ".agentcache" in dests, f".agentcache missing for remote_kind={kind!r}"
+            assert ".agentgitsmart" in dests, f".agentgitsmart missing for remote_kind={kind!r}"
 
     def test_sources_point_into_tooling_root(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
@@ -232,16 +232,16 @@ class TestPlanScaffold:
             assert "action" in item
 
     def test_github_plan_order(self, tooling_root, target_dir):
-        """workflow comes first, then AGENTS.md, then .agentcache."""
+        """workflow comes first, then AGENTS.md, then .agentgitsmart."""
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
         dests = [item["dest"] for item in plan]
-        assert dests.index(".github/workflows/agentcache.yml") < dests.index("AGENTS.md")
-        assert dests.index("AGENTS.md") < dests.index(".agentcache")
+        assert dests.index(".github/workflows/agentgitsmart.yml") < dests.index("AGENTS.md")
+        assert dests.index("AGENTS.md") < dests.index(".agentgitsmart")
 
     def test_workflow_source_is_adopter_workflow_yml(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
         wf = next(
-            i for i in plan if i["dest"] == ".github/workflows/agentcache.yml"
+            i for i in plan if i["dest"] == ".github/workflows/agentgitsmart.yml"
         )
         assert wf["source"].endswith("docs/adopter-workflow.yml")
 
@@ -250,10 +250,10 @@ class TestPlanScaffold:
         ag = next(i for i in plan if i["dest"] == "AGENTS.md")
         assert ag["source"].endswith("docs/ADOPTER_AGENTS_TEMPLATE.md")
 
-    def test_agentcache_source_is_example_file(self, tooling_root, target_dir):
+    def test_agentgitsmart_source_is_example_file(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
-        ac = next(i for i in plan if i["dest"] == ".agentcache")
-        assert ac["source"].endswith(".agentcache.example")
+        ac = next(i for i in plan if i["dest"] == ".agentgitsmart")
+        assert ac["source"].endswith(".agentgitsmart.example")
 
 
 # ===========================================================================
@@ -276,10 +276,10 @@ class TestApplyScaffold:
         plan: list[dict] = []
         if include_wf:
             wf_src = str(tooling_root / "docs" / "adopter-workflow.yml")
-            wf_dest_full = target_dir / ".github" / "workflows" / "agentcache.yml"
+            wf_dest_full = target_dir / ".github" / "workflows" / "agentgitsmart.yml"
             plan.append(
                 {
-                    "dest": ".github/workflows/agentcache.yml",
+                    "dest": ".github/workflows/agentgitsmart.yml",
                     "source": wf_src,
                     "exists": wf_dest_full.exists(),
                     "action": "skip-exists" if wf_dest_full.exists() else "create",
@@ -295,11 +295,11 @@ class TestApplyScaffold:
                 "action": "skip-exists" if skip_agents else "create",
             }
         )
-        ac_src = str(tooling_root / ".agentcache.example")
-        ac_dest_full = target_dir / ".agentcache"
+        ac_src = str(tooling_root / ".agentgitsmart.example")
+        ac_dest_full = target_dir / ".agentgitsmart"
         plan.append(
             {
-                "dest": ".agentcache",
+                "dest": ".agentgitsmart",
                 "source": ac_src,
                 "exists": ac_dest_full.exists(),
                 "action": "skip-exists" if ac_dest_full.exists() else "create",
@@ -311,24 +311,24 @@ class TestApplyScaffold:
         """apply_scaffold must mkdir -p .github/workflows/."""
         plan = self._make_plan(tooling_root, target_dir)
         apply_scaffold(plan, str(target_dir))
-        assert (target_dir / ".github" / "workflows" / "agentcache.yml").exists()
+        assert (target_dir / ".github" / "workflows" / "agentgitsmart.yml").exists()
 
     def test_creates_agents_md(self, tooling_root, target_dir):
         plan = self._make_plan(tooling_root, target_dir)
         apply_scaffold(plan, str(target_dir))
         assert (target_dir / "AGENTS.md").exists()
 
-    def test_creates_agentcache_dot(self, tooling_root, target_dir):
+    def test_creates_agentgitsmart_dot(self, tooling_root, target_dir):
         plan = self._make_plan(tooling_root, target_dir)
         apply_scaffold(plan, str(target_dir))
-        assert (target_dir / ".agentcache").exists()
+        assert (target_dir / ".agentgitsmart").exists()
 
     def test_returns_created_relpaths(self, tooling_root, target_dir):
         plan = self._make_plan(tooling_root, target_dir)
         created = apply_scaffold(plan, str(target_dir))
-        assert ".github/workflows/agentcache.yml" in created
+        assert ".github/workflows/agentgitsmart.yml" in created
         assert "AGENTS.md" in created
-        assert ".agentcache" in created
+        assert ".agentgitsmart" in created
 
     def test_does_not_overwrite_existing_file(self, tooling_root, target_dir):
         """skip-exists items must not be overwritten."""
@@ -376,12 +376,12 @@ class TestRunInstallOffer:
         root.mkdir()
         (root / "docs").mkdir()
         (root / "docs" / "adopter-workflow.yml").write_text(
-            "name: AgentCache adopter\n"
+            "name: AgentGitSmart adopter\n"
         )
         (root / "docs" / "ADOPTER_AGENTS_TEMPLATE.md").write_text(
             "# Agent Instructions\n"
         )
-        (root / ".agentcache.example").write_text('service_url = "https://e.g."\n')
+        (root / ".agentgitsmart.example").write_text('service_url = "https://e.g."\n')
         return root
 
     def test_worthwhile_assume_yes_returns_installed_true(self, tmp_path):
@@ -389,7 +389,7 @@ class TestRunInstallOffer:
         target = tmp_path / "repo"
         target.mkdir()
         result = run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=True,
             target_repo=str(target),
             tooling_root=str(root),
@@ -406,7 +406,7 @@ class TestRunInstallOffer:
         target = tmp_path / "repo"
         target.mkdir()
         run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=True,
             target_repo=str(target),
             tooling_root=str(root),
@@ -415,16 +415,16 @@ class TestRunInstallOffer:
             no_install=False,
             interactive=False,
         )
-        assert (target / ".github" / "workflows" / "agentcache.yml").exists()
+        assert (target / ".github" / "workflows" / "agentgitsmart.yml").exists()
         assert (target / "AGENTS.md").exists()
-        assert (target / ".agentcache").exists()
+        assert (target / ".agentgitsmart").exists()
 
     def test_no_install_flag_returns_installed_false(self, tmp_path):
         root = self._make_tooling(tmp_path)
         target = tmp_path / "repo"
         target.mkdir()
         result = run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=True,
             target_repo=str(target),
             tooling_root=str(root),
@@ -442,7 +442,7 @@ class TestRunInstallOffer:
         target = tmp_path / "repo"
         target.mkdir()
         run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=True,
             target_repo=str(target),
             tooling_root=str(root),
@@ -452,7 +452,7 @@ class TestRunInstallOffer:
             interactive=False,
         )
         assert not (target / "AGENTS.md").exists()
-        assert not (target / ".agentcache").exists()
+        assert not (target / ".agentgitsmart").exists()
 
     def test_non_worthwhile_label_not_offered(self, tmp_path):
         root = self._make_tooling(tmp_path)
@@ -491,7 +491,7 @@ class TestRunInstallOffer:
         target = tmp_path / "repo"
         target.mkdir()
         result = run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=False,  # bare repo / URL target
             target_repo=str(target),
             tooling_root=str(root),
@@ -503,12 +503,12 @@ class TestRunInstallOffer:
         assert result["offered"] is False
 
     def test_non_github_remote_skips_workflow_file(self, tmp_path):
-        """For 'other' remotes, workflow is excluded; AGENTS.md + .agentcache still created."""
+        """For 'other' remotes, workflow is excluded; AGENTS.md + .agentgitsmart still created."""
         root = self._make_tooling(tmp_path)
         target = tmp_path / "repo"
         target.mkdir()
         run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=True,
             target_repo=str(target),
             tooling_root=str(root),
@@ -517,9 +517,9 @@ class TestRunInstallOffer:
             no_install=False,
             interactive=False,
         )
-        assert not (target / ".github" / "workflows" / "agentcache.yml").exists()
+        assert not (target / ".github" / "workflows" / "agentgitsmart.yml").exists()
         assert (target / "AGENTS.md").exists()
-        assert (target / ".agentcache").exists()
+        assert (target / ".agentgitsmart").exists()
 
     def test_no_tty_non_interactive_not_assume_yes_returns_installed_false(
         self, tmp_path
@@ -529,7 +529,7 @@ class TestRunInstallOffer:
         target = tmp_path / "repo"
         target.mkdir()
         result = run_install_offer(
-            verdict_label="agentcache worthwhile",
+            verdict_label="agentgitsmart worthwhile",
             target_is_local_worktree=True,
             target_repo=str(target),
             tooling_root=str(root),
@@ -544,37 +544,37 @@ class TestRunInstallOffer:
 
 
 # ===========================================================================
-# Part 1 — agentcache.generate.main()
+# Part 1 — agentgitsmart.generate.main()
 # ===========================================================================
 
 
 class TestGenerateMain:
-    """Packaged agentcache-generate entrypoint."""
+    """Packaged agentgitsmart-generate entrypoint."""
 
     def test_main_returns_zero(self, repo, capsys):
         r, _commit_hex = repo
         rc = generate_main(["--repo", r.path, "--commit", "HEAD"])
         assert rc == 0
 
-    def test_main_emits_agentcache_ref_marker(self, repo, capsys):
+    def test_main_emits_agentgitsmart_ref_marker(self, repo, capsys):
         r, _commit_hex = repo
         generate_main(["--repo", r.path, "--commit", "HEAD"])
         out = capsys.readouterr().out
-        assert "::AGENTCACHE_REF::" in out
+        assert "::AGENTGITSMART_REF::" in out
 
-    def test_main_marker_contains_refs_agent_cache(self, repo, capsys):
+    def test_main_marker_contains_refs_agent_git_smart(self, repo, capsys):
         r, _commit_hex = repo
         generate_main(["--repo", r.path, "--commit", "HEAD"])
         out = capsys.readouterr().out
-        marker_lines = [ln for ln in out.splitlines() if "::AGENTCACHE_REF::" in ln]
-        assert marker_lines, "No ::AGENTCACHE_REF:: line in output"
-        assert "refs/agent-cache/" in marker_lines[0]
+        marker_lines = [ln for ln in out.splitlines() if "::AGENTGITSMART_REF::" in ln]
+        assert marker_lines, "No ::AGENTGITSMART_REF:: line in output"
+        assert "refs/agent-git-smart/" in marker_lines[0]
 
-    def test_main_builds_agent_cache_ref(self, repo, capsys):
-        """The side ref refs/agent-cache/<sha> must exist after generate_main."""
+    def test_main_builds_agent_git_smart_ref(self, repo, capsys):
+        """The side ref refs/agent-git-smart/<sha> must exist after generate_main."""
         r, commit_hex = repo
         generate_main(["--repo", r.path, "--commit", "HEAD"])
-        expected_ref = f"refs/agent-cache/{commit_hex}"
+        expected_ref = f"refs/agent-git-smart/{commit_hex}"
         # pygit2 lookup
         ref = r.references.get(expected_ref)
         assert ref is not None, f"{expected_ref} was not created"
@@ -592,17 +592,17 @@ class TestGenerateMain:
         assert "cache_ref" in out
 
     def test_shim_script_calls_packaged_main(self):
-        """scripts/generate_agentcache.py must import agentcache.generate and delegate."""
-        shim_src = (_ROOT / "scripts" / "generate_agentcache.py").read_text()
-        assert "agentcache.generate" in shim_src, (
-            "Shim does not reference agentcache.generate"
+        """scripts/generate_agentgitsmart.py must import agentgitsmart.generate and delegate."""
+        shim_src = (_ROOT / "scripts" / "generate_agentgitsmart.py").read_text()
+        assert "agentgitsmart.generate" in shim_src, (
+            "Shim does not reference agentgitsmart.generate"
         )
 
     def test_console_script_registered(self):
-        """pyproject.toml must register agentcache-generate = 'agentcache.generate:main'."""
+        """pyproject.toml must register agentgitsmart-generate = 'agentgitsmart.generate:main'."""
         pyproject = (_ROOT / "pyproject.toml").read_text()
-        assert "agentcache-generate" in pyproject
-        assert "agentcache.generate:main" in pyproject
+        assert "agentgitsmart-generate" in pyproject
+        assert "agentgitsmart.generate:main" in pyproject
 
 
 # ===========================================================================
@@ -639,11 +639,11 @@ class TestAdopterWorkflow:
         on = data.get("on") or data.get(True)
         assert "workflow_dispatch" in (on or {}), "'workflow_dispatch' trigger missing"
 
-    def test_loop_safe_push_targets_refs_agent_cache(self):
-        """Artifact push must target refs/agent-cache/* (not a branch → no re-trigger)."""
+    def test_loop_safe_push_targets_refs_agent_git_smart(self):
+        """Artifact push must target refs/agent-git-smart/* (not a branch → no re-trigger)."""
         text = _ADOPTER_WF.read_text()
-        assert "refs/agent-cache" in text, (
-            "Push step does not reference refs/agent-cache — workflow may be loop-unsafe"
+        assert "refs/agent-git-smart" in text, (
+            "Push step does not reference refs/agent-git-smart — workflow may be loop-unsafe"
         )
 
     def test_installs_via_pip_not_pip_install_e(self):
@@ -653,17 +653,17 @@ class TestAdopterWorkflow:
             "Adopter workflow uses 'pip install -e .' — must use published package instead"
         )
 
-    def test_installs_agentcache_package(self):
+    def test_installs_agentgitsmart_package(self):
         text = _ADOPTER_WF.read_text()
-        assert "agentcache" in text.lower()
+        assert "agentgitsmart" in text.lower()
         # Must reference the pip-installable package (not repo-internal scripts)
-        assert "agentcache @" in text or "agentcache==" in text or "AgentCache@" in text
+        assert "agentgitsmart @" in text or "agentgitsmart==" in text or "AgentGitSmart@" in text
 
-    def test_uses_agentcache_generate_cli(self):
-        """Must call agentcache-generate (the console script), not scripts/generate_agentcache.py."""
+    def test_uses_agentgitsmart_generate_cli(self):
+        """Must call agentgitsmart-generate (the console script), not scripts/generate_agentgitsmart.py."""
         text = _ADOPTER_WF.read_text()
-        assert "agentcache-generate" in text, (
-            "Adopter workflow does not use the agentcache-generate console script"
+        assert "agentgitsmart-generate" in text, (
+            "Adopter workflow does not use the agentgitsmart-generate console script"
         )
 
     def test_has_contents_write_permission(self):

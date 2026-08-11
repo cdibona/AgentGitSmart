@@ -2,7 +2,7 @@
   "experiment_id": "6d89556c",
   "created_at": "2026-06-26T22:22:54.317801+00:00",
   "status": "complete",
-  "description": "Cache experiment over 15 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git, cpython.git, django.git, fd.git, git-lfs.git, git.git, go.git, jq.git, ohmyzsh.git, prettier.git, redis.git, ripgrep.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentcache; the agent edits 3.0% of source files each pass (seed 4244); 2 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).",
+  "description": "Cache experiment over 15 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git, cpython.git, django.git, fd.git, git-lfs.git, git.git, go.git, jq.git, ohmyzsh.git, prettier.git, redis.git, ripgrep.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentgitsmart; the agent edits 3.0% of source files each pass (seed 4244); 2 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).",
   "config": {
     "repos": [
       "anthropic-cookbook.git",
@@ -24,7 +24,7 @@
     "methods": [
       "naive",
       "blobless",
-      "agentcache"
+      "agentgitsmart"
     ],
     "passes": 3,
     "pct": 3.0,
@@ -53,7 +53,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 160,
               "files_selected": 4,
               "modified": 4,
@@ -72,7 +72,7 @@
               "roundtrips": 5,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 180,
               "files_selected": 5,
               "modified": 3,
@@ -84,14 +84,14 @@
               "phase_commit_ms": 46.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 572378,
               "bytes_sent": 2134,
               "wall_s": 12.8,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 180,
               "files_selected": 5,
               "modified": 3,
@@ -145,7 +145,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 160,
               "files_selected": 4,
               "modified": 4,
@@ -164,7 +164,7 @@
               "roundtrips": 5,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 180,
               "files_selected": 5,
               "modified": 4,
@@ -176,14 +176,14 @@
               "phase_commit_ms": 84.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 23146,
               "bytes_sent": 2175,
               "wall_s": 2.51,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 180,
               "files_selected": 5,
               "modified": 4,
@@ -237,7 +237,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 160,
               "files_selected": 4,
               "modified": 3,
@@ -256,7 +256,7 @@
               "roundtrips": 5,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 180,
               "files_selected": 5,
               "modified": 4,
@@ -268,14 +268,14 @@
               "phase_commit_ms": 85.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 21837,
               "bytes_sent": 2175,
               "wall_s": 2.858,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 180,
               "files_selected": 5,
               "modified": 4,
@@ -317,7 +317,7 @@
           "warm_avg_clone_ms": 179.6,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 572378,
           "warm_avg_bytes": 22492,
           "cold_wall": 12.8,
@@ -333,12 +333,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 3180.7,
-          "agentcache": 7145.4
+          "agentgitsmart": 7145.4
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 6.1,
-          "agentcache": 3.0
+          "agentgitsmart": 3.0
         }
       }
     },
@@ -360,7 +360,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 1123,
               "files_selected": 33,
               "modified": 31,
@@ -379,7 +379,7 @@
               "roundtrips": 33,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 1127,
               "files_selected": 33,
               "modified": 30,
@@ -391,14 +391,14 @@
               "phase_commit_ms": 482.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 888182,
               "bytes_sent": 3550,
               "wall_s": 2.84,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 1127,
               "files_selected": 33,
               "modified": 30,
@@ -452,7 +452,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 1123,
               "files_selected": 33,
               "modified": 30,
@@ -471,7 +471,7 @@
               "roundtrips": 33,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 1127,
               "files_selected": 33,
               "modified": 33,
@@ -483,14 +483,14 @@
               "phase_commit_ms": 419.8,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 56019,
               "bytes_sent": 3591,
               "wall_s": 1.454,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 1127,
               "files_selected": 33,
               "modified": 33,
@@ -544,7 +544,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 1123,
               "files_selected": 33,
               "modified": 31,
@@ -563,7 +563,7 @@
               "roundtrips": 33,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 1127,
               "files_selected": 33,
               "modified": 33,
@@ -575,14 +575,14 @@
               "phase_commit_ms": 305.4,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 38178,
               "bytes_sent": 3641,
               "wall_s": 1.796,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 1127,
               "files_selected": 33,
               "modified": 33,
@@ -624,7 +624,7 @@
           "warm_avg_clone_ms": 185.3,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 888182,
           "warm_avg_bytes": 47098,
           "cold_wall": 2.84,
@@ -640,12 +640,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 11.8,
-          "agentcache": 24.2
+          "agentgitsmart": 24.2
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.4,
-          "agentcache": 0.9
+          "agentgitsmart": 0.9
         }
       }
     },
@@ -667,7 +667,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 199,
               "files_selected": 5,
               "modified": 5,
@@ -686,7 +686,7 @@
               "roundtrips": 6,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 207,
               "files_selected": 6,
               "modified": 2,
@@ -698,14 +698,14 @@
               "phase_commit_ms": 72.6,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 2449314,
               "bytes_sent": 2311,
               "wall_s": 2.585,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 207,
               "files_selected": 6,
               "modified": 2,
@@ -759,7 +759,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 199,
               "files_selected": 5,
               "modified": 5,
@@ -778,7 +778,7 @@
               "roundtrips": 6,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 207,
               "files_selected": 6,
               "modified": 4,
@@ -790,14 +790,14 @@
               "phase_commit_ms": 72.5,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 12334,
               "bytes_sent": 2352,
               "wall_s": 1.344,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 207,
               "files_selected": 6,
               "modified": 4,
@@ -851,7 +851,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 199,
               "files_selected": 5,
               "modified": 3,
@@ -870,7 +870,7 @@
               "roundtrips": 6,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 207,
               "files_selected": 6,
               "modified": 3,
@@ -882,14 +882,14 @@
               "phase_commit_ms": 81.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 9694,
               "bytes_sent": 2352,
               "wall_s": 1.289,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 207,
               "files_selected": 6,
               "modified": 3,
@@ -931,7 +931,7 @@
           "warm_avg_clone_ms": 170.8,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 2449314,
           "warm_avg_bytes": 11014,
           "cold_wall": 2.585,
@@ -947,12 +947,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 39.0,
-          "agentcache": 200.7
+          "agentgitsmart": 200.7
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 1.3,
-          "agentcache": 1.1
+          "agentgitsmart": 1.1
         }
       }
     },
@@ -974,7 +974,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3376,
               "files_selected": 101,
               "modified": 70,
@@ -993,7 +993,7 @@
               "roundtrips": 103,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3457,
               "files_selected": 103,
               "modified": 60,
@@ -1005,14 +1005,14 @@
               "phase_commit_ms": 853.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 20640506,
               "bytes_sent": 6930,
               "wall_s": 14.997,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3457,
               "files_selected": 103,
               "modified": 60,
@@ -1066,7 +1066,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3376,
               "files_selected": 101,
               "modified": 60,
@@ -1085,7 +1085,7 @@
               "roundtrips": 103,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3457,
               "files_selected": 103,
               "modified": 73,
@@ -1097,14 +1097,14 @@
               "phase_commit_ms": 995.9,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 753957,
               "bytes_sent": 6971,
               "wall_s": 6.721,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3457,
               "files_selected": 103,
               "modified": 73,
@@ -1158,7 +1158,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3376,
               "files_selected": 101,
               "modified": 60,
@@ -1177,7 +1177,7 @@
               "roundtrips": 103,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3457,
               "files_selected": 103,
               "modified": 63,
@@ -1189,14 +1189,14 @@
               "phase_commit_ms": 1044.9,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 772309,
               "bytes_sent": 6971,
               "wall_s": 7.176,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3457,
               "files_selected": 103,
               "modified": 63,
@@ -1238,7 +1238,7 @@
           "warm_avg_clone_ms": 258.1,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 20640506,
           "warm_avg_bytes": 763133,
           "cold_wall": 14.997,
@@ -1254,12 +1254,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 10.9,
-          "agentcache": 14.2
+          "agentgitsmart": 14.2
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.5,
-          "agentcache": 0.8
+          "agentgitsmart": 0.8
         }
       }
     },
@@ -1281,7 +1281,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3572,
               "files_selected": 107,
               "modified": 73,
@@ -1300,7 +1300,7 @@
               "roundtrips": 108,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3609,
               "files_selected": 108,
               "modified": 77,
@@ -1312,14 +1312,14 @@
               "phase_commit_ms": 812.5,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 122184363,
               "bytes_sent": 7397,
               "wall_s": 43.8,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3609,
               "files_selected": 108,
               "modified": 77,
@@ -1373,7 +1373,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3572,
               "files_selected": 107,
               "modified": 77,
@@ -1392,7 +1392,7 @@
               "roundtrips": 108,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3609,
               "files_selected": 108,
               "modified": 72,
@@ -1404,14 +1404,14 @@
               "phase_commit_ms": 922.6,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 415439,
               "bytes_sent": 7237,
               "wall_s": 14.707,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3609,
               "files_selected": 108,
               "modified": 72,
@@ -1465,7 +1465,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3572,
               "files_selected": 107,
               "modified": 72,
@@ -1484,7 +1484,7 @@
               "roundtrips": 108,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3609,
               "files_selected": 108,
               "modified": 80,
@@ -1496,14 +1496,14 @@
               "phase_commit_ms": 708.3,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 827423,
               "bytes_sent": 7438,
               "wall_s": 15.807,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3609,
               "files_selected": 108,
               "modified": 80,
@@ -1545,7 +1545,7 @@
           "warm_avg_clone_ms": 326.6,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 122184363,
           "warm_avg_bytes": 621431,
           "cold_wall": 43.8,
@@ -1561,12 +1561,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 53.3,
-          "agentcache": 72.6
+          "agentgitsmart": 72.6
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.5,
-          "agentcache": 0.6
+          "agentgitsmart": 0.6
         }
       }
     },
@@ -1588,7 +1588,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3041,
               "files_selected": 91,
               "modified": 36,
@@ -1607,7 +1607,7 @@
               "roundtrips": 91,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3062,
               "files_selected": 91,
               "modified": 39,
@@ -1619,14 +1619,14 @@
               "phase_commit_ms": 1030.3,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 41009163,
               "bytes_sent": 26038,
               "wall_s": 29.505,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3062,
               "files_selected": 91,
               "modified": 39,
@@ -1680,7 +1680,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3041,
               "files_selected": 91,
               "modified": 32,
@@ -1699,7 +1699,7 @@
               "roundtrips": 91,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3062,
               "files_selected": 91,
               "modified": 34,
@@ -1711,14 +1711,14 @@
               "phase_commit_ms": 821.8,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 155083,
               "bytes_sent": 5429,
               "wall_s": 7.868,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3062,
               "files_selected": 91,
               "modified": 34,
@@ -1772,7 +1772,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3041,
               "files_selected": 91,
               "modified": 39,
@@ -1791,7 +1791,7 @@
               "roundtrips": 91,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 3062,
               "files_selected": 91,
               "modified": 38,
@@ -1803,14 +1803,14 @@
               "phase_commit_ms": 765.2,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 169454,
               "bytes_sent": 5779,
               "wall_s": 6.397,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 3062,
               "files_selected": 91,
               "modified": 38,
@@ -1852,7 +1852,7 @@
           "warm_avg_clone_ms": 206.3,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 41009163,
           "warm_avg_bytes": 162268,
           "cold_wall": 29.505,
@@ -1868,12 +1868,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 23.3,
-          "agentcache": 77.3
+          "agentgitsmart": 77.3
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.7,
-          "agentcache": 0.8
+          "agentgitsmart": 0.8
         }
       }
     },
@@ -1895,7 +1895,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 30,
               "files_selected": 1,
               "modified": 1,
@@ -1914,7 +1914,7 @@
               "roundtrips": 1,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 36,
               "files_selected": 1,
               "modified": 1,
@@ -1926,14 +1926,14 @@
               "phase_commit_ms": 22.1,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 1112708,
               "bytes_sent": 1806,
               "wall_s": 0.984,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 36,
               "files_selected": 1,
               "modified": 1,
@@ -1987,7 +1987,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 30,
               "files_selected": 1,
               "modified": 1,
@@ -2006,7 +2006,7 @@
               "roundtrips": 1,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 36,
               "files_selected": 1,
               "modified": 1,
@@ -2018,14 +2018,14 @@
               "phase_commit_ms": 12.1,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 5581,
               "bytes_sent": 1847,
               "wall_s": 0.714,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 36,
               "files_selected": 1,
               "modified": 1,
@@ -2079,7 +2079,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 30,
               "files_selected": 1,
               "modified": 1,
@@ -2098,7 +2098,7 @@
               "roundtrips": 1,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 36,
               "files_selected": 1,
               "modified": 0,
@@ -2110,14 +2110,14 @@
               "phase_commit_ms": 0.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 5430,
               "bytes_sent": 1847,
               "wall_s": 0.836,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 36,
               "files_selected": 1,
               "modified": 0,
@@ -2159,7 +2159,7 @@
           "warm_avg_clone_ms": 114.2,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 1112708,
           "warm_avg_bytes": 5506,
           "cold_wall": 0.984,
@@ -2175,12 +2175,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 20.6,
-          "agentcache": 26.4
+          "agentgitsmart": 26.4
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 1.0,
-          "agentcache": 0.8
+          "agentgitsmart": 0.8
         }
       }
     },
@@ -2202,7 +2202,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 402,
               "files_selected": 12,
               "modified": 10,
@@ -2221,7 +2221,7 @@
               "roundtrips": 12,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 405,
               "files_selected": 12,
               "modified": 11,
@@ -2233,14 +2233,14 @@
               "phase_commit_ms": 116.3,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 6075185,
               "bytes_sent": 2396,
               "wall_s": 2.784,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 405,
               "files_selected": 12,
               "modified": 11,
@@ -2294,7 +2294,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 402,
               "files_selected": 12,
               "modified": 10,
@@ -2313,7 +2313,7 @@
               "roundtrips": 12,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 405,
               "files_selected": 12,
               "modified": 11,
@@ -2325,14 +2325,14 @@
               "phase_commit_ms": 138.3,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 30463,
               "bytes_sent": 2437,
               "wall_s": 1.384,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 405,
               "files_selected": 12,
               "modified": 11,
@@ -2386,7 +2386,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 402,
               "files_selected": 12,
               "modified": 10,
@@ -2405,7 +2405,7 @@
               "roundtrips": 12,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 405,
               "files_selected": 12,
               "modified": 10,
@@ -2417,14 +2417,14 @@
               "phase_commit_ms": 104.8,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 37449,
               "bytes_sent": 2437,
               "wall_s": 1.842,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 405,
               "files_selected": 12,
               "modified": 10,
@@ -2466,7 +2466,7 @@
           "warm_avg_clone_ms": 169.0,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 6075185,
           "warm_avg_bytes": 33956,
           "cold_wall": 2.784,
@@ -2482,12 +2482,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 14.1,
-          "agentcache": 26.5
+          "agentgitsmart": 26.5
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.7,
-          "agentcache": 0.7
+          "agentgitsmart": 0.7
         }
       }
     },
@@ -2509,7 +2509,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 2328,
               "files_selected": 69,
               "modified": 36,
@@ -2528,7 +2528,7 @@
               "roundtrips": 70,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 2334,
               "files_selected": 70,
               "modified": 32,
@@ -2540,14 +2540,14 @@
               "phase_commit_ms": 615.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 110741085,
               "bytes_sent": 5511,
               "wall_s": 25.264,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 2334,
               "files_selected": 70,
               "modified": 32,
@@ -2601,7 +2601,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 2328,
               "files_selected": 69,
               "modified": 42,
@@ -2620,7 +2620,7 @@
               "roundtrips": 70,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 2334,
               "files_selected": 70,
               "modified": 42,
@@ -2632,14 +2632,14 @@
               "phase_commit_ms": 417.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 321398,
               "bytes_sent": 5552,
               "wall_s": 9.667,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 2334,
               "files_selected": 70,
               "modified": 42,
@@ -2693,7 +2693,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 2328,
               "files_selected": 69,
               "modified": 41,
@@ -2712,7 +2712,7 @@
               "roundtrips": 70,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 2334,
               "files_selected": 70,
               "modified": 44,
@@ -2724,14 +2724,14 @@
               "phase_commit_ms": 515.6,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 237978,
               "bytes_sent": 5552,
               "wall_s": 12.713,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 2334,
               "files_selected": 70,
               "modified": 44,
@@ -2773,7 +2773,7 @@
           "warm_avg_clone_ms": 190.9,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 110741085,
           "warm_avg_bytes": 279688,
           "cold_wall": 25.264,
@@ -2789,12 +2789,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 29.6,
-          "agentcache": 46.6
+          "agentgitsmart": 46.6
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.9,
-          "agentcache": 0.5
+          "agentgitsmart": 0.5
         }
       }
     },
@@ -2816,7 +2816,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 11713,
               "files_selected": 351,
               "modified": 349,
@@ -2835,7 +2835,7 @@
               "roundtrips": 351,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 11720,
               "files_selected": 351,
               "modified": 348,
@@ -2847,14 +2847,14 @@
               "phase_commit_ms": 2469.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 89536509,
               "bytes_sent": 19306,
               "wall_s": 56.651,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 11722,
               "files_selected": 351,
               "modified": 347,
@@ -2908,7 +2908,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 11713,
               "files_selected": 351,
               "modified": 349,
@@ -2927,7 +2927,7 @@
               "roundtrips": 351,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 11720,
               "files_selected": 351,
               "modified": 349,
@@ -2939,14 +2939,14 @@
               "phase_commit_ms": 2814.8,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 739704,
               "bytes_sent": 19297,
               "wall_s": 19.406,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 11722,
               "files_selected": 351,
               "modified": 348,
@@ -3000,7 +3000,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 11713,
               "files_selected": 351,
               "modified": 344,
@@ -3019,7 +3019,7 @@
               "roundtrips": 351,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 11720,
               "files_selected": 351,
               "modified": 348,
@@ -3031,14 +3031,14 @@
               "phase_commit_ms": 3301.2,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 690436,
               "bytes_sent": 19493,
               "wall_s": 23.138,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 11722,
               "files_selected": 351,
               "modified": 347,
@@ -3080,7 +3080,7 @@
           "warm_avg_clone_ms": 216.6,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 89536509,
           "warm_avg_bytes": 715070,
           "cold_wall": 56.651,
@@ -3096,12 +3096,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 28.8,
-          "agentcache": 52.9
+          "agentgitsmart": 52.9
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.4,
-          "agentcache": 0.7
+          "agentgitsmart": 0.7
         }
       }
     },
@@ -3123,7 +3123,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 119,
               "files_selected": 3,
               "modified": 1,
@@ -3142,7 +3142,7 @@
               "roundtrips": 3,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 128,
               "files_selected": 3,
               "modified": 3,
@@ -3154,14 +3154,14 @@
               "phase_commit_ms": 64.4,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 1271202,
               "bytes_sent": 2152,
               "wall_s": 1.959,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 128,
               "files_selected": 3,
               "modified": 3,
@@ -3215,7 +3215,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 119,
               "files_selected": 3,
               "modified": 0,
@@ -3234,7 +3234,7 @@
               "roundtrips": 3,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 128,
               "files_selected": 3,
               "modified": 1,
@@ -3246,14 +3246,14 @@
               "phase_commit_ms": 42.6,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 8408,
               "bytes_sent": 2193,
               "wall_s": 0.912,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 128,
               "files_selected": 3,
               "modified": 1,
@@ -3307,7 +3307,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 119,
               "files_selected": 3,
               "modified": 2,
@@ -3326,7 +3326,7 @@
               "roundtrips": 3,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 128,
               "files_selected": 3,
               "modified": 2,
@@ -3338,14 +3338,14 @@
               "phase_commit_ms": 40.9,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 22212,
               "bytes_sent": 2193,
               "wall_s": 0.92,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 128,
               "files_selected": 3,
               "modified": 2,
@@ -3387,7 +3387,7 @@
           "warm_avg_clone_ms": 119.0,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 1271202,
           "warm_avg_bytes": 15310,
           "cold_wall": 1.959,
@@ -3403,12 +3403,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 45.5,
-          "agentcache": 88.2
+          "agentgitsmart": 88.2
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 1.2,
-          "agentcache": 1.1
+          "agentgitsmart": 1.1
         }
       }
     },
@@ -3430,7 +3430,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 382,
               "files_selected": 11,
               "modified": 8,
@@ -3449,7 +3449,7 @@
               "roundtrips": 11,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 395,
               "files_selected": 11,
               "modified": 8,
@@ -3461,14 +3461,14 @@
               "phase_commit_ms": 93.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 5557393,
               "bytes_sent": 2346,
               "wall_s": 3.046,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 395,
               "files_selected": 11,
               "modified": 8,
@@ -3522,7 +3522,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 382,
               "files_selected": 11,
               "modified": 8,
@@ -3541,7 +3541,7 @@
               "roundtrips": 11,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 395,
               "files_selected": 11,
               "modified": 11,
@@ -3553,14 +3553,14 @@
               "phase_commit_ms": 93.4,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 23770,
               "bytes_sent": 2387,
               "wall_s": 1.373,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 395,
               "files_selected": 11,
               "modified": 11,
@@ -3614,7 +3614,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 382,
               "files_selected": 11,
               "modified": 10,
@@ -3633,7 +3633,7 @@
               "roundtrips": 11,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 395,
               "files_selected": 11,
               "modified": 9,
@@ -3645,14 +3645,14 @@
               "phase_commit_ms": 89.9,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 9572,
               "bytes_sent": 2588,
               "wall_s": 1.536,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 395,
               "files_selected": 11,
               "modified": 9,
@@ -3694,7 +3694,7 @@
           "warm_avg_clone_ms": 129.6,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 5557393,
           "warm_avg_bytes": 16671,
           "cold_wall": 3.046,
@@ -3710,12 +3710,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 47.9,
-          "agentcache": 209.1
+          "agentgitsmart": 209.1
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.9,
-          "agentcache": 0.9
+          "agentgitsmart": 0.9
         }
       }
     },
@@ -3737,7 +3737,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 6125,
               "files_selected": 183,
               "modified": 42,
@@ -3756,7 +3756,7 @@
               "roundtrips": 184,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 6146,
               "files_selected": 184,
               "modified": 45,
@@ -3768,14 +3768,14 @@
               "phase_commit_ms": 1348.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 17454589,
               "bytes_sent": 10406,
               "wall_s": 14.133,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 6149,
               "files_selected": 184,
               "modified": 46,
@@ -3829,7 +3829,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 6125,
               "files_selected": 183,
               "modified": 46,
@@ -3848,7 +3848,7 @@
               "roundtrips": 184,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 6146,
               "files_selected": 184,
               "modified": 50,
@@ -3860,14 +3860,14 @@
               "phase_commit_ms": 1716.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 56338,
               "bytes_sent": 9895,
               "wall_s": 5.428,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 6149,
               "files_selected": 184,
               "modified": 49,
@@ -3921,7 +3921,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 6125,
               "files_selected": 183,
               "modified": 45,
@@ -3940,7 +3940,7 @@
               "roundtrips": 184,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 6146,
               "files_selected": 184,
               "modified": 44,
@@ -3952,14 +3952,14 @@
               "phase_commit_ms": 1545.2,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 53760,
               "bytes_sent": 9547,
               "wall_s": 4.365,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 6149,
               "files_selected": 184,
               "modified": 42,
@@ -4001,7 +4001,7 @@
           "warm_avg_clone_ms": 238.6,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 17454589,
           "warm_avg_bytes": 55049,
           "cold_wall": 14.133,
@@ -4017,12 +4017,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 11.5,
-          "agentcache": 121.7
+          "agentgitsmart": 121.7
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.4,
-          "agentcache": 1.2
+          "agentgitsmart": 1.2
         }
       }
     },
@@ -4044,7 +4044,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 942,
               "files_selected": 28,
               "modified": 7,
@@ -4063,7 +4063,7 @@
               "roundtrips": 28,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 956,
               "files_selected": 28,
               "modified": 5,
@@ -4075,14 +4075,14 @@
               "phase_commit_ms": 218.9,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 11055149,
               "bytes_sent": 3180,
               "wall_s": 6.1,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 956,
               "files_selected": 28,
               "modified": 5,
@@ -4136,7 +4136,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 942,
               "files_selected": 28,
               "modified": 5,
@@ -4155,7 +4155,7 @@
               "roundtrips": 28,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 956,
               "files_selected": 28,
               "modified": 3,
@@ -4167,14 +4167,14 @@
               "phase_commit_ms": 247.3,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 196122,
               "bytes_sent": 3221,
               "wall_s": 2.454,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 956,
               "files_selected": 28,
               "modified": 3,
@@ -4228,7 +4228,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 942,
               "files_selected": 28,
               "modified": 2,
@@ -4247,7 +4247,7 @@
               "roundtrips": 28,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 956,
               "files_selected": 28,
               "modified": 2,
@@ -4259,14 +4259,14 @@
               "phase_commit_ms": 318.9,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 187805,
               "bytes_sent": 3221,
               "wall_s": 2.445,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 956,
               "files_selected": 28,
               "modified": 2,
@@ -4308,7 +4308,7 @@
           "warm_avg_clone_ms": 185.8,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 11055149,
           "warm_avg_bytes": 191964,
           "cold_wall": 6.1,
@@ -4324,12 +4324,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 19.8,
-          "agentcache": 26.3
+          "agentgitsmart": 26.3
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 0.7,
-          "agentcache": 0.9
+          "agentgitsmart": 0.9
         }
       }
     },
@@ -4351,7 +4351,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 116,
               "files_selected": 3,
               "modified": 2,
@@ -4370,7 +4370,7 @@
               "roundtrips": 3,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 122,
               "files_selected": 3,
               "modified": 3,
@@ -4382,14 +4382,14 @@
               "phase_commit_ms": 41.7,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 1618818,
               "bytes_sent": 1946,
               "wall_s": 1.365,
               "roundtrips": 1,
               "cold": true,
               "bundle_used": false,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 122,
               "files_selected": 3,
               "modified": 3,
@@ -4443,7 +4443,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 116,
               "files_selected": 3,
               "modified": 1,
@@ -4462,7 +4462,7 @@
               "roundtrips": 3,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 122,
               "files_selected": 3,
               "modified": 3,
@@ -4474,14 +4474,14 @@
               "phase_commit_ms": 39.1,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 35498,
               "bytes_sent": 1987,
               "wall_s": 0.868,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 122,
               "files_selected": 3,
               "modified": 3,
@@ -4535,7 +4535,7 @@
               "roundtrips": 0,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 116,
               "files_selected": 3,
               "modified": 2,
@@ -4554,7 +4554,7 @@
               "roundtrips": 3,
               "cold": false,
               "bundle_used": false,
-              "agentcache_detected": false,
+              "agentgitsmart_detected": false,
               "files_found": 122,
               "files_selected": 3,
               "modified": 2,
@@ -4566,14 +4566,14 @@
               "phase_commit_ms": 40.0,
               "error": null
             },
-            "agentcache": {
+            "agentgitsmart": {
               "bytes": 40069,
               "bytes_sent": 1987,
               "wall_s": 0.931,
               "roundtrips": 1,
               "cold": false,
               "bundle_used": true,
-              "agentcache_detected": true,
+              "agentgitsmart_detected": true,
               "files_found": 122,
               "files_selected": 3,
               "modified": 2,
@@ -4615,7 +4615,7 @@
           "warm_avg_clone_ms": 164.7,
           "runs": 3
         },
-        "agentcache": {
+        "agentgitsmart": {
           "cold_bytes": 1618818,
           "warm_avg_bytes": 37784,
           "cold_wall": 1.365,
@@ -4631,12 +4631,12 @@
         "_win_vs_naive": {
           "naive": 1.0,
           "blobless": 14.1,
-          "agentcache": 17.6
+          "agentgitsmart": 17.6
         },
         "_win_vs_naive_wall": {
           "naive": 1.0,
           "blobless": 1.0,
-          "agentcache": 0.9
+          "agentgitsmart": 0.9
         }
       }
     }
@@ -4644,187 +4644,187 @@
   "log": [
     "Docker available \u2014 building/checking agent image\u2026",
     "Each pass will run in a FRESH disposable container \ud83d\udc33",
-    "Cache experiment over 15 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git, cpython.git, django.git, fd.git, git-lfs.git, git.git, go.git, jq.git, ohmyzsh.git, prettier.git, redis.git, ripgrep.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentcache; the agent edits 3.0% of source files each pass (seed 4244); 2 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).",
-    "[anthropic-cookbook.git] start \u2014 574 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "Cache experiment over 15 repo(s) [anthropic-cookbook.git, anthropic-sdk-python.git, bat.git, codex.git, cpython.git, django.git, fd.git, git-lfs.git, git.git, go.git, jq.git, ohmyzsh.git, prettier.git, redis.git, ripgrep.git]: 3 agent pass(es) per repo (pass 1 = COLD/builds the cache, later passes = WARM/steady state); methods compared: naive, blobless, agentgitsmart; the agent edits 3.0% of source files each pass (seed 4244); 2 teammate (human) commit(s) interleaved between agent passes, cache warmed after each human commit via the 'hook' mechanism (hook = in-process server post-receive; action = github-action subprocess incl. blobless bundle; both = run and compare); the next agent stays warm; each agent pass runs in a fresh, disposable Docker container. Agent network cost is measured end-to-end through a byte-counting proxy; each human step records its own wall time and the cache-rebuild load it triggered (delta vs full, files reindexed/carried-forward, bytes materialized).",
+    "[anthropic-cookbook.git] start \u2014 574 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[anthropic-cookbook.git] pass 1 naive      160,715,003B 8.61s ",
     "[anthropic-cookbook.git] pass 1 blobless       46,733B 1.06s ",
-    "[anthropic-cookbook.git] pass 1 agentcache    572,378B 12.80s COLD",
+    "[anthropic-cookbook.git] pass 1 agentgitsmart    572,378B 12.80s COLD",
     "[anthropic-cookbook.git] HUMAN commit #1 f5bc2e7bd8 \u2192 hook delta: reindexed=1 carried=574 21B 6.49s",
     "[anthropic-cookbook.git] pass 2 naive      160,714,172B 8.02s ",
     "[anthropic-cookbook.git] pass 2 blobless       51,265B 1.26s ",
-    "[anthropic-cookbook.git] pass 2 agentcache     23,146B 2.51s ",
+    "[anthropic-cookbook.git] pass 2 agentgitsmart     23,146B 2.51s ",
     "[anthropic-cookbook.git] HUMAN commit #2 9485a19f03 \u2192 hook delta: reindexed=1 carried=575 21B 5.78s",
     "[anthropic-cookbook.git] pass 3 naive      160,714,326B 7.89s ",
     "[anthropic-cookbook.git] pass 3 blobless       49,790B 1.34s ",
-    "[anthropic-cookbook.git] pass 3 agentcache     21,837B 2.86s ",
-    "[anthropic-sdk-python.git] start \u2014 1189 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[anthropic-cookbook.git] pass 3 agentgitsmart     21,837B 2.86s ",
+    "[anthropic-sdk-python.git] start \u2014 1189 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[anthropic-sdk-python.git] pass 1 naive       1,139,157B 1.47s ",
     "[anthropic-sdk-python.git] pass 1 blobless      109,772B 3.98s ",
-    "[anthropic-sdk-python.git] pass 1 agentcache    888,182B 2.84s COLD",
+    "[anthropic-sdk-python.git] pass 1 agentgitsmart    888,182B 2.84s COLD",
     "[anthropic-sdk-python.git] HUMAN commit #1 47797da776 \u2192 hook delta: reindexed=1 carried=1189 21B 0.40s",
     "[anthropic-sdk-python.git] pass 2 naive       1,139,279B 1.51s ",
     "[anthropic-sdk-python.git] pass 2 blobless      103,939B 3.83s ",
-    "[anthropic-sdk-python.git] pass 2 agentcache     56,019B 1.45s ",
+    "[anthropic-sdk-python.git] pass 2 agentgitsmart     56,019B 1.45s ",
     "[anthropic-sdk-python.git] HUMAN commit #2 9dad653824 \u2192 hook delta: reindexed=1 carried=1190 21B 0.45s",
     "[anthropic-sdk-python.git] pass 3 naive       1,139,226B 1.36s ",
     "[anthropic-sdk-python.git] pass 3 blobless       89,201B 3.39s ",
-    "[anthropic-sdk-python.git] pass 3 agentcache     38,178B 1.80s ",
-    "[bat.git] start \u2014 1004 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[anthropic-sdk-python.git] pass 3 agentgitsmart     38,178B 1.80s ",
+    "[bat.git] start \u2014 1004 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[bat.git] pass 1 naive       2,210,645B 1.64s ",
     "[bat.git] pass 1 blobless       58,072B 1.29s ",
-    "[bat.git] pass 1 agentcache  2,449,314B 2.58s COLD",
+    "[bat.git] pass 1 agentgitsmart  2,449,314B 2.58s COLD",
     "[bat.git] HUMAN commit #1 46a5e3feb3 \u2192 hook delta: reindexed=1 carried=1004 21B 0.38s",
     "[bat.git] pass 2 naive       2,210,228B 1.52s ",
     "[bat.git] pass 2 blobless       58,054B 1.14s ",
-    "[bat.git] pass 2 agentcache     12,334B 1.34s ",
+    "[bat.git] pass 2 agentgitsmart     12,334B 1.34s ",
     "[bat.git] HUMAN commit #2 5a77982030 \u2192 hook delta: reindexed=1 carried=1005 21B 0.34s",
     "[bat.git] pass 3 naive       2,210,285B 1.50s ",
     "[bat.git] pass 3 blobless       55,244B 1.19s ",
-    "[bat.git] pass 3 agentcache      9,694B 1.29s ",
-    "[codex.git] start \u2014 5259 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[bat.git] pass 3 agentgitsmart      9,694B 1.29s ",
+    "[codex.git] start \u2014 5259 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[codex.git] pass 1 naive      10,851,382B 5.90s ",
     "[codex.git] pass 1 blobless    1,010,550B 10.18s ",
-    "[codex.git] pass 1 agentcache 20,640,506B 15.00s COLD",
+    "[codex.git] pass 1 agentgitsmart 20,640,506B 15.00s COLD",
     "[codex.git] HUMAN commit #1 e8c9aad9af \u2192 hook delta: reindexed=1 carried=5259 21B 4.46s",
     "[codex.git] pass 2 naive      10,849,978B 5.30s ",
     "[codex.git] pass 2 blobless      983,049B 10.15s ",
-    "[codex.git] pass 2 agentcache    753,957B 6.72s ",
+    "[codex.git] pass 2 agentgitsmart    753,957B 6.72s ",
     "[codex.git] HUMAN commit #2 4e0213fad6 \u2192 hook delta: reindexed=1 carried=5260 21B 4.29s",
     "[codex.git] pass 3 naive      10,848,515B 5.55s ",
     "[codex.git] pass 3 blobless    1,001,075B 10.38s ",
-    "[codex.git] pass 3 agentcache    772,309B 7.18s ",
-    "[cpython.git] start \u2014 5801 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[codex.git] pass 3 agentgitsmart    772,309B 7.18s ",
+    "[cpython.git] start \u2014 5801 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[cpython.git] pass 1 naive      45,125,262B 12.11s ",
     "[cpython.git] pass 1 blobless      716,389B 20.18s ",
-    "[cpython.git] pass 1 agentcache 122,184,363B 43.80s COLD",
+    "[cpython.git] pass 1 agentgitsmart 122,184,363B 43.80s COLD",
     "[cpython.git] HUMAN commit #1 eb7a7dc269 \u2192 hook delta: reindexed=1 carried=5801 21B 6.48s",
     "[cpython.git] pass 2 naive      45,123,184B 8.80s ",
     "[cpython.git] pass 2 blobless      640,301B 17.34s ",
-    "[cpython.git] pass 2 agentcache    415,439B 14.71s ",
+    "[cpython.git] pass 2 agentgitsmart    415,439B 14.71s ",
     "[cpython.git] HUMAN commit #2 4779b41bb5 \u2192 hook delta: reindexed=1 carried=5802 21B 5.86s",
     "[cpython.git] pass 3 naive      45,124,052B 8.27s ",
     "[cpython.git] pass 3 blobless    1,051,836B 18.34s ",
-    "[cpython.git] pass 3 agentcache    827,423B 15.81s ",
-    "[django.git] start \u2014 7070 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[cpython.git] pass 3 agentgitsmart    827,423B 15.81s ",
+    "[django.git] start \u2014 7070 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[django.git] pass 1 naive      12,543,909B 7.08s ",
     "[django.git] pass 1 blobless      556,799B 8.88s ",
-    "[django.git] pass 1 agentcache 41,009,163B 29.50s COLD",
+    "[django.git] pass 1 agentgitsmart 41,009,163B 29.50s COLD",
     "[django.git] HUMAN commit #1 4a1b8712bf \u2192 hook delta: reindexed=1 carried=7070 21B 2.81s",
     "[django.git] pass 2 naive      12,543,405B 5.91s ",
     "[django.git] pass 2 blobless      530,019B 7.92s ",
-    "[django.git] pass 2 agentcache    155,083B 7.87s ",
+    "[django.git] pass 2 agentgitsmart    155,083B 7.87s ",
     "[django.git] HUMAN commit #2 1aa4a45372 \u2192 hook delta: reindexed=1 carried=7071 21B 2.69s",
     "[django.git] pass 3 naive      12,551,535B 5.89s ",
     "[django.git] pass 3 blobless      545,546B 8.06s ",
-    "[django.git] pass 3 agentcache    169,454B 6.40s ",
-    "[fd.git] start \u2014 57 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[django.git] pass 3 agentgitsmart    169,454B 6.40s ",
+    "[fd.git] start \u2014 57 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[fd.git] pass 1 naive         146,246B 0.60s ",
     "[fd.git] pass 1 blobless        9,548B 0.70s ",
-    "[fd.git] pass 1 agentcache  1,112,708B 0.98s COLD",
+    "[fd.git] pass 1 agentgitsmart  1,112,708B 0.98s COLD",
     "[fd.git] HUMAN commit #1 67c15925d5 \u2192 hook delta: reindexed=1 carried=57 21B 0.07s",
     "[fd.git] pass 2 naive         145,529B 0.60s ",
     "[fd.git] pass 2 blobless        7,211B 0.53s ",
-    "[fd.git] pass 2 agentcache      5,581B 0.71s ",
+    "[fd.git] pass 2 agentgitsmart      5,581B 0.71s ",
     "[fd.git] HUMAN commit #2 93ec7e6d3c \u2192 hook delta: reindexed=1 carried=58 21B 0.04s",
     "[fd.git] pass 3 naive         145,584B 0.64s ",
     "[fd.git] pass 3 blobless        6,889B 0.68s ",
-    "[fd.git] pass 3 agentcache      5,430B 0.84s ",
-    "[git-lfs.git] start \u2014 650 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[fd.git] pass 3 agentgitsmart      5,430B 0.84s ",
+    "[git-lfs.git] start \u2014 650 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[git-lfs.git] pass 1 naive         899,403B 1.02s ",
     "[git-lfs.git] pass 1 blobless       64,689B 1.76s ",
-    "[git-lfs.git] pass 1 agentcache  6,075,185B 2.78s COLD",
+    "[git-lfs.git] pass 1 agentgitsmart  6,075,185B 2.78s COLD",
     "[git-lfs.git] HUMAN commit #1 adca14a041 \u2192 hook delta: reindexed=1 carried=650 21B 0.30s",
     "[git-lfs.git] pass 2 naive         898,706B 1.10s ",
     "[git-lfs.git] pass 2 blobless       60,221B 1.62s ",
-    "[git-lfs.git] pass 2 agentcache     30,463B 1.38s ",
+    "[git-lfs.git] pass 2 agentgitsmart     30,463B 1.38s ",
     "[git-lfs.git] HUMAN commit #2 1f57b959fb \u2192 hook delta: reindexed=1 carried=651 21B 0.21s",
     "[git-lfs.git] pass 3 naive         898,761B 1.12s ",
     "[git-lfs.git] pass 3 blobless       67,031B 1.63s ",
-    "[git-lfs.git] pass 3 agentcache     37,449B 1.84s ",
-    "[git.git] start \u2014 4765 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[git-lfs.git] pass 3 agentgitsmart     37,449B 1.84s ",
+    "[git.git] start \u2014 4765 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[git.git] pass 1 naive      13,017,793B 6.64s ",
     "[git.git] pass 1 blobless      451,423B 6.99s ",
-    "[git.git] pass 1 agentcache 110,741,085B 25.26s COLD",
+    "[git.git] pass 1 agentgitsmart 110,741,085B 25.26s COLD",
     "[git.git] HUMAN commit #1 69417113bc \u2192 hook delta: reindexed=1 carried=4765 21B 1.58s",
     "[git.git] pass 2 naive      13,017,124B 5.88s ",
     "[git.git] pass 2 blobless      483,260B 5.83s ",
-    "[git.git] pass 2 agentcache    321,398B 9.67s ",
+    "[git.git] pass 2 agentgitsmart    321,398B 9.67s ",
     "[git.git] HUMAN commit #2 0cbb5719cf \u2192 hook delta: reindexed=1 carried=4766 21B 1.89s",
     "[git.git] pass 3 naive      13,076,671B 5.33s ",
     "[git.git] pass 3 blobless      399,665B 6.08s ",
-    "[git.git] pass 3 agentcache    237,978B 12.71s ",
-    "[go.git] start \u2014 15596 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[git.git] pass 3 agentgitsmart    237,978B 12.71s ",
+    "[go.git] start \u2014 15596 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[go.git] pass 1 naive      37,807,733B 13.86s ",
     "[go.git] pass 1 blobless    1,318,643B 31.58s ",
-    "[go.git] pass 1 agentcache 89,536,509B 56.65s COLD",
+    "[go.git] pass 1 agentgitsmart 89,536,509B 56.65s COLD",
     "[go.git] HUMAN commit #1 504dd8c687 \u2192 hook delta: reindexed=1 carried=15596 21B 15.08s",
     "[go.git] pass 2 naive      37,803,524B 14.73s ",
     "[go.git] pass 2 blobless    1,340,597B 34.91s ",
-    "[go.git] pass 2 agentcache    739,704B 19.41s ",
+    "[go.git] pass 2 agentgitsmart    739,704B 19.41s ",
     "[go.git] HUMAN commit #2 403fa13cdb \u2192 hook delta: reindexed=1 carried=15597 21B 13.26s",
     "[go.git] pass 3 naive      37,803,644B 13.72s ",
     "[go.git] pass 3 blobless    1,288,368B 32.48s ",
-    "[go.git] pass 3 agentcache    690,436B 23.14s ",
-    "[jq.git] start \u2014 429 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[go.git] pass 3 agentgitsmart    690,436B 23.14s ",
+    "[jq.git] start \u2014 429 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[jq.git] pass 1 naive       1,349,954B 1.15s ",
     "[jq.git] pass 1 blobless      108,506B 1.03s ",
-    "[jq.git] pass 1 agentcache  1,271,202B 1.96s COLD",
+    "[jq.git] pass 1 agentgitsmart  1,271,202B 1.96s COLD",
     "[jq.git] HUMAN commit #1 f736403b7c \u2192 hook delta: reindexed=1 carried=429 21B 0.27s",
     "[jq.git] pass 2 naive       1,350,001B 1.16s ",
     "[jq.git] pass 2 blobless       22,837B 0.88s ",
-    "[jq.git] pass 2 agentcache      8,408B 0.91s ",
+    "[jq.git] pass 2 agentgitsmart      8,408B 0.91s ",
     "[jq.git] HUMAN commit #2 1dab92a9f4 \u2192 hook delta: reindexed=1 carried=430 21B 0.17s",
     "[jq.git] pass 3 naive       1,350,055B 0.84s ",
     "[jq.git] pass 3 blobless       36,468B 0.80s ",
-    "[jq.git] pass 3 agentcache     22,212B 0.92s ",
-    "[ohmyzsh.git] start \u2014 1091 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[jq.git] pass 3 agentgitsmart     22,212B 0.92s ",
+    "[ohmyzsh.git] start \u2014 1091 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[ohmyzsh.git] pass 1 naive       3,485,985B 1.08s ",
     "[ohmyzsh.git] pass 1 blobless       68,798B 1.42s ",
-    "[ohmyzsh.git] pass 1 agentcache  5,557,393B 3.05s COLD",
+    "[ohmyzsh.git] pass 1 agentgitsmart  5,557,393B 3.05s COLD",
     "[ohmyzsh.git] HUMAN commit #1 279ebc5b63 \u2192 hook delta: reindexed=1 carried=1091 21B 0.56s",
     "[ohmyzsh.git] pass 2 naive       3,485,355B 1.16s ",
     "[ohmyzsh.git] pass 2 blobless       80,077B 1.43s ",
-    "[ohmyzsh.git] pass 2 agentcache     23,770B 1.37s ",
+    "[ohmyzsh.git] pass 2 agentgitsmart     23,770B 1.37s ",
     "[ohmyzsh.git] HUMAN commit #2 bcd85b9c72 \u2192 hook delta: reindexed=1 carried=1092 21B 0.64s",
     "[ohmyzsh.git] pass 3 naive       3,485,421B 1.35s ",
     "[ohmyzsh.git] pass 3 blobless       65,505B 1.48s ",
-    "[ohmyzsh.git] pass 3 agentcache      9,572B 1.54s ",
-    "[prettier.git] start \u2014 9373 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[ohmyzsh.git] pass 3 agentgitsmart      9,572B 1.54s ",
+    "[prettier.git] start \u2014 9373 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[prettier.git] pass 1 naive       6,701,315B 5.12s ",
     "[prettier.git] pass 1 blobless      605,659B 14.61s ",
-    "[prettier.git] pass 1 agentcache 17,454,589B 14.13s COLD",
+    "[prettier.git] pass 1 agentgitsmart 17,454,589B 14.13s COLD",
     "[prettier.git] HUMAN commit #1 18ee3d66ce \u2192 hook delta: reindexed=1 carried=9373 21B 1.61s",
     "[prettier.git] pass 2 naive       6,700,350B 6.70s ",
     "[prettier.git] pass 2 blobless      587,241B 15.04s ",
-    "[prettier.git] pass 2 agentcache     56,338B 5.43s ",
+    "[prettier.git] pass 2 agentgitsmart     56,338B 5.43s ",
     "[prettier.git] HUMAN commit #2 ab1351d55c \u2192 hook delta: reindexed=1 carried=9374 21B 1.34s",
     "[prettier.git] pass 3 naive       6,700,754B 5.41s ",
     "[prettier.git] pass 3 blobless      580,108B 14.86s ",
-    "[prettier.git] pass 3 agentcache     53,760B 4.37s ",
-    "[redis.git] start \u2014 1818 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[prettier.git] pass 3 agentgitsmart     53,760B 4.37s ",
+    "[redis.git] start \u2014 1818 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[redis.git] pass 1 naive       5,048,443B 2.52s ",
     "[redis.git] pass 1 blobless      203,878B 2.96s ",
-    "[redis.git] pass 1 agentcache 11,055,149B 6.10s COLD",
+    "[redis.git] pass 1 agentgitsmart 11,055,149B 6.10s COLD",
     "[redis.git] HUMAN commit #1 229cc2a880 \u2192 hook delta: reindexed=1 carried=1818 21B 1.53s",
     "[redis.git] pass 2 naive       5,047,061B 2.28s ",
     "[redis.git] pass 2 blobless      259,488B 2.93s ",
-    "[redis.git] pass 2 agentcache    196,122B 2.45s ",
+    "[redis.git] pass 2 agentgitsmart    196,122B 2.45s ",
     "[redis.git] HUMAN commit #2 b54f1ed548 \u2192 hook delta: reindexed=1 carried=1819 21B 1.43s",
     "[redis.git] pass 3 naive       5,047,118B 2.36s ",
     "[redis.git] pass 3 blobless      250,829B 3.33s ",
-    "[redis.git] pass 3 agentcache    187,805B 2.44s ",
-    "[ripgrep.git] start \u2014 222 files \u00b7 cleared 0 agent-cache ref(s), 0 remain (verified cold)",
+    "[redis.git] pass 3 agentgitsmart    187,805B 2.44s ",
+    "[ripgrep.git] start \u2014 222 files \u00b7 cleared 0 agent-git-smart ref(s), 0 remain (verified cold)",
     "[ripgrep.git] pass 1 naive         665,953B 0.87s ",
     "[ripgrep.git] pass 1 blobless       48,884B 0.86s ",
-    "[ripgrep.git] pass 1 agentcache  1,618,818B 1.36s COLD",
+    "[ripgrep.git] pass 1 agentgitsmart  1,618,818B 1.36s COLD",
     "[ripgrep.git] HUMAN commit #1 f61ddfac1d \u2192 hook delta: reindexed=1 carried=222 21B 0.18s",
     "[ripgrep.git] pass 2 naive         665,345B 0.85s ",
     "[ripgrep.git] pass 2 blobless       44,886B 0.83s ",
-    "[ripgrep.git] pass 2 agentcache     35,498B 0.87s ",
+    "[ripgrep.git] pass 2 agentgitsmart     35,498B 0.87s ",
     "[ripgrep.git] HUMAN commit #2 079d4eeb31 \u2192 hook delta: reindexed=1 carried=223 21B 0.18s",
     "[ripgrep.git] pass 3 naive         665,402B 0.79s ",
     "[ripgrep.git] pass 3 blobless       49,280B 0.84s ",
-    "[ripgrep.git] pass 3 agentcache     40,069B 0.93s "
+    "[ripgrep.git] pass 3 agentgitsmart     40,069B 0.93s "
   ],
   "completed_at": "2026-06-26T22:39:22.061420+00:00"
 }

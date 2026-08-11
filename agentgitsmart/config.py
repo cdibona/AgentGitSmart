@@ -1,6 +1,6 @@
 """Configuration, loaded from the environment / a .env file.
 
-Every knob has an ``AGENTCACHE_`` prefix so it composes cleanly with a git
+Every knob has an ``AGENTGITSMART_`` prefix so it composes cleanly with a git
 hook environment. Nothing here is secret; auth tokens for the promisor and the
 index service are handled by the surrounding infra, not this process.
 """
@@ -21,13 +21,13 @@ def _bool(val: Optional[str], default: bool = False) -> bool:
 
 
 @dataclass(frozen=True)
-class AgentCacheConfig:
+class AgentGitSmartConfig:
     # The repository we generate caches for. On a server this is the bare repo;
     # a post-receive hook gets it from $GIT_DIR.
     repo_dir: str
     # Side-ref namespace. Kept out of refs/heads so it never shows up as a
     # branch and never drags into normal history walks.
-    ref_prefix: str = "refs/agent-cache"
+    ref_prefix: str = "refs/agent-git-smart"
     # Symbol indexer. universal-ctags recommended; absence degrades gracefully.
     ctags_bin: str = "ctags"
     # Where bootstrap bundles are written (then synced to object storage / CDN).
@@ -35,18 +35,18 @@ class AgentCacheConfig:
     bundle_dir: Optional[str] = None
     bundle_filter: str = "blob:none"
     # Identity stamped on the orphan cache commits.
-    bot_name: str = "AgentCache Bot"
-    bot_email: str = "agentcache@localhost"
+    bot_name: str = "AgentGitSmart Bot"
+    bot_email: str = "agentgitsmart@localhost"
     # Query service bind.
     service_host: str = "127.0.0.1"
     service_port: int = 8765
     # URL this service is reachable at (used to self-reference in agents.md artifact).
-    # Set AGENTCACHE_SERVICE_URL in the environment; leave blank to omit from artifact.
+    # Set AGENTGITSMART_SERVICE_URL in the environment; leave blank to omit from artifact.
     service_url: str = ""
     # Lazy generation: if a cache is requested for a commit that has none yet,
     # build it on the spot (first agent pays a one-time cost, later agents reuse).
     # This makes the post-receive hook an optimization, not a hard requirement:
-    # a repo "adopts" agentcache the moment the service serves its first request.
+    # a repo "adopts" agentgitsmart the moment the service serves its first request.
     lazy_generation: bool = True
     # Delta symbol indexing: when True, reindex only changed files against the
     # parent commit's symbol index rather than rebuilding from scratch.
@@ -61,41 +61,41 @@ class AgentCacheConfig:
     @classmethod
     def from_env(
         cls, env_path: Optional[str] = None, *, repo_dir: Optional[str] = None
-    ) -> "AgentCacheConfig":
+    ) -> "AgentGitSmartConfig":
         # load_dotenv is a no-op if the file is absent, so this is safe in prod
         # where config arrives as real environment variables.
         load_dotenv(env_path, override=False)
         repo = (
             repo_dir
-            or os.environ.get("AGENTCACHE_REPO_DIR")
+            or os.environ.get("AGENTGITSMART_REPO_DIR")
             or os.environ.get("GIT_DIR")
         )
         if not repo:
             raise ValueError(
-                "repo_dir not set: pass repo_dir=, or set AGENTCACHE_REPO_DIR / GIT_DIR"
+                "repo_dir not set: pass repo_dir=, or set AGENTGITSMART_REPO_DIR / GIT_DIR"
             )
-        bundle_dir = os.environ.get("AGENTCACHE_BUNDLE_DIR") or None
-        raw_ratio = os.environ.get("AGENTCACHE_DELTA_MAX_RATIO")
+        bundle_dir = os.environ.get("AGENTGITSMART_BUNDLE_DIR") or None
+        raw_ratio = os.environ.get("AGENTGITSMART_DELTA_MAX_RATIO")
         delta_max_ratio: Optional[float] = float(raw_ratio) if raw_ratio else None
         return cls(
             repo_dir=repo,
-            ref_prefix=os.environ.get("AGENTCACHE_REF_PREFIX", "refs/agent-cache"),
-            ctags_bin=os.environ.get("AGENTCACHE_CTAGS_BIN", "ctags"),
+            ref_prefix=os.environ.get("AGENTGITSMART_REF_PREFIX", "refs/agent-git-smart"),
+            ctags_bin=os.environ.get("AGENTGITSMART_CTAGS_BIN", "ctags"),
             bundle_dir=bundle_dir,
-            bundle_filter=os.environ.get("AGENTCACHE_BUNDLE_FILTER", "blob:none"),
-            bot_name=os.environ.get("AGENTCACHE_BOT_NAME", "AgentCache Bot"),
-            bot_email=os.environ.get("AGENTCACHE_BOT_EMAIL", "agentcache@localhost"),
-            service_host=os.environ.get("AGENTCACHE_SERVICE_HOST", "127.0.0.1"),
-            service_port=int(os.environ.get("AGENTCACHE_SERVICE_PORT", "8765")),
-            service_url=os.environ.get("AGENTCACHE_SERVICE_URL", ""),
+            bundle_filter=os.environ.get("AGENTGITSMART_BUNDLE_FILTER", "blob:none"),
+            bot_name=os.environ.get("AGENTGITSMART_BOT_NAME", "AgentGitSmart Bot"),
+            bot_email=os.environ.get("AGENTGITSMART_BOT_EMAIL", "agentgitsmart@localhost"),
+            service_host=os.environ.get("AGENTGITSMART_SERVICE_HOST", "127.0.0.1"),
+            service_port=int(os.environ.get("AGENTGITSMART_SERVICE_PORT", "8765")),
+            service_url=os.environ.get("AGENTGITSMART_SERVICE_URL", ""),
             lazy_generation=_bool(
-                os.environ.get("AGENTCACHE_LAZY_GENERATION"), default=True
+                os.environ.get("AGENTGITSMART_LAZY_GENERATION"), default=True
             ),
             delta_symbols=_bool(
-                os.environ.get("AGENTCACHE_DELTA_SYMBOLS"), default=True
+                os.environ.get("AGENTGITSMART_DELTA_SYMBOLS"), default=True
             ),
             delta_on_merge=_bool(
-                os.environ.get("AGENTCACHE_DELTA_ON_MERGE"), default=True
+                os.environ.get("AGENTGITSMART_DELTA_ON_MERGE"), default=True
             ),
             delta_max_ratio=delta_max_ratio,
         )

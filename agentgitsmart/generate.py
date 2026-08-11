@@ -1,19 +1,19 @@
-"""agentcache.generate — packaged CLI entrypoint for generating the agent-cache side ref.
+"""agentgitsmart.generate — packaged CLI entrypoint for generating the agent-git-smart side ref.
 
 This module holds the core of the generate CLI so it can be installed as a
-console script (``agentcache-generate``) and invoked from CI without requiring
-the AgentCache source tree to be on ``sys.path``.
+console script (``agentgitsmart-generate``) and invoked from CI without requiring
+the AgentGitSmart source tree to be on ``sys.path``.
 
-Output contract (preserved from scripts/generate_agentcache.py):
+Output contract (preserved from scripts/generate_agentgitsmart.py):
   source_commit : <sha>
-  cache_ref     : refs/agent-cache/<sha>
+  cache_ref     : refs/agent-git-smart/<sha>
   cache_commit  : <orphan-sha>
   manifest      : N entries
   symbols       : N (ctags=yes|no)
   [bundle        : <path>]  # only when --bundle-dir is set
-  ::AGENTCACHE_REF::refs/agent-cache/<sha>   ← machine-readable trailer CI greps
+  ::AGENTGITSMART_REF::refs/agent-git-smart/<sha>   ← machine-readable trailer CI greps
 
-The trailing ``::AGENTCACHE_REF::`` line is the signal CI uses to push the ref
+The trailing ``::AGENTGITSMART_REF::`` line is the signal CI uses to push the ref
 back to the remote.  Do not remove or reformat it.
 """
 
@@ -25,9 +25,9 @@ from typing import Optional
 
 import pygit2
 
-from agentcache.config import AgentCacheConfig
-from agentcache import hook as hook_mod
-from agentcache import bundle as bundle_mod
+from agentgitsmart.config import AgentGitSmartConfig
+from agentgitsmart import hook as hook_mod
+from agentgitsmart import bundle as bundle_mod
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -41,15 +41,15 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     Output (stdout):
         source_commit, cache_ref, cache_commit, manifest count, symbol count,
-        optional bundle path, and the canonical ``::AGENTCACHE_REF::<ref>``
+        optional bundle path, and the canonical ``::AGENTGITSMART_REF::<ref>``
         machine-readable marker.
     """
     p = argparse.ArgumentParser(
         description=(
-            "Generate the agentcache side ref for one commit.\n\n"
+            "Generate the agentgitsmart side ref for one commit.\n\n"
             "Builds manifest.json + symbols.json (+ meta/agents.md) for the "
             "commit and stores them as an orphan commit under "
-            "refs/agent-cache/<commit-oid>.  Push that ref back to the remote "
+            "refs/agent-git-smart/<commit-oid>.  Push that ref back to the remote "
             "and agents can fetch the cache directly -- no running query "
             "service required."
         )
@@ -70,7 +70,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     repo = pygit2.Repository(args.repo)
     commit = str(repo.revparse_single(args.commit).id)
-    cfg = AgentCacheConfig(repo_dir=args.repo, bundle_dir=args.bundle_dir)
+    cfg = AgentGitSmartConfig(repo_dir=args.repo, bundle_dir=args.bundle_dir)
 
     result = hook_mod.generate_for_commit(repo, commit, cfg)
     meta = result.get("meta", {})
@@ -96,5 +96,5 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"bundle        : {out}")
 
     # Emit the ref name on a trailing line so CI can `git push` it.
-    print(f"::AGENTCACHE_REF::{result['cache_ref']}")
+    print(f"::AGENTGITSMART_REF::{result['cache_ref']}")
     return 0

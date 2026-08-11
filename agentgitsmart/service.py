@@ -20,14 +20,14 @@ from typing import Any, Dict, List
 import pygit2
 from flask import Flask, jsonify, request
 
-from .config import AgentCacheConfig
+from .config import AgentGitSmartConfig
 from . import cache_writer
 from . import hook as hook_mod
 from . import GENERATOR_VERSION
 from .symbols import SYMBOLS_SCHEMA
 
 
-def create_app(cfg: AgentCacheConfig) -> Flask:
+def create_app(cfg: AgentGitSmartConfig) -> Flask:
     app = Flask(__name__)
     repo = pygit2.Repository(cfg.repo_dir)
 
@@ -264,7 +264,7 @@ def create_app(cfg: AgentCacheConfig) -> Flask:
 
 
 def main() -> int:  # pragma: no cover - thin runner
-    cfg = AgentCacheConfig.from_env()
+    cfg = AgentGitSmartConfig.from_env()
     app = create_app(cfg)
     app.run(host=cfg.service_host, port=cfg.service_port)
     return 0

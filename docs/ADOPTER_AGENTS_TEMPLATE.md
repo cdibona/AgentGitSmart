@@ -2,11 +2,11 @@
 
 ## Getting full agent instructions (no clone needed)
 
-If the agentcache service is running, you can get commit-specific instructions
+If the agentgitsmart service is running, you can get commit-specific instructions
 in a single HTTP request — no git clone required:
 
 ```bash
-curl <AGENTCACHE_SERVICE_URL>/agents.md
+curl <AGENTGITSMART_SERVICE_URL>/agents.md
 ```
 
 This returns the same document you are reading, but rendered with the actual
@@ -16,21 +16,21 @@ tracked file tree — so this works before you have cloned anything.
 
 ---
 
-<!-- agentcache-config
-service_url: <AGENTCACHE_SERVICE_URL>
+<!-- agentgitsmart-config
+service_url: <AGENTGITSMART_SERVICE_URL>
 bundle_cdn:  <BUNDLE_CDN_URL_OR_OMIT>
 -->
 
-> **This repo has agentcache installed.**  Before you clone anything,
+> **This repo has agentgitsmart installed.**  Before you clone anything,
 > read the cold-start protocol below.  On a large repo it can be the
 > difference between a 30-second start and a 5-minute one, and saves
 > the git server significant bandwidth per agent session.
 
 ---
 
-## agentcache cold-start protocol
+## agentgitsmart cold-start protocol
 
-This repository's git server runs agentcache.  Instead of a full or
+This repository's git server runs agentgitsmart.  Instead of a full or
 shallow clone, use this three-step sequence.  You only fetch the blobs
 you are going to read.
 
@@ -54,7 +54,7 @@ cd workspace
 #             --branch <DEFAULT_BRANCH> <REPO_URL> workspace
 
 # ── 2.  Resolve — ask which OIDs you need, no content transferred ─
-OIDS=$(curl -s -XPOST "<AGENTCACHE_SERVICE_URL>/cache/${COMMIT}/resolve" \
+OIDS=$(curl -s -XPOST "<AGENTGITSMART_SERVICE_URL>/cache/${COMMIT}/resolve" \
        -H 'content-type: application/json' \
        -d '{"paths":["src/app.py","src/util.c"]}' \
      | jq -r '.fetch_oids[]')
@@ -79,9 +79,9 @@ will actually touch — usually a few kilobytes — in a single round trip.
 
 ---
 
-## agentcache service endpoints
+## agentgitsmart service endpoints
 
-Base URL: `<AGENTCACHE_SERVICE_URL>`
+Base URL: `<AGENTGITSMART_SERVICE_URL>`
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -95,7 +95,7 @@ Base URL: `<AGENTCACHE_SERVICE_URL>`
 
 ```bash
 # Where is TokenRefresher defined, and what blob OID do I fetch?
-curl -s "<AGENTCACHE_SERVICE_URL>/cache/${COMMIT}/symbol/TokenRefresher" | jq .
+curl -s "<AGENTGITSMART_SERVICE_URL>/cache/${COMMIT}/symbol/TokenRefresher" | jq .
 # → {"name":"TokenRefresher","locations":[{"path":"src/app.py","line":5,"kind":"class","oid":"abc123...","size":1234}],"fetch_oids":["abc123..."]}
 
 # Fetch that blob directly:
@@ -113,7 +113,7 @@ means only changed files are re-scanned on each push
 
 ```bash
 # Check a file's size before deciding whether to fetch it.
-curl -s "<AGENTCACHE_SERVICE_URL>/cache/${COMMIT}/manifest" \
+curl -s "<AGENTGITSMART_SERVICE_URL>/cache/${COMMIT}/manifest" \
   | jq '.entries[] | select(.path=="data/large-dataset.parquet") | .size'
 ```
 
@@ -151,5 +151,5 @@ need or that are too large to be useful in a context window.
 ---
 
 *This file was generated from the
-[agentcache adopter template](https://github.com/cdibona/AgentCache/blob/main/docs/ADOPTER_AGENTS_TEMPLATE.md).
-See that repo for the full agentcache documentation.*
+[agentgitsmart adopter template](https://github.com/cdibona/AgentGitSmart/blob/main/docs/ADOPTER_AGENTS_TEMPLATE.md).
+See that repo for the full agentgitsmart documentation.*

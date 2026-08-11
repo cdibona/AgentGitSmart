@@ -1,4 +1,4 @@
-"""Tests for the ref-filter guard in agentcache.hook._handle_ref.
+"""Tests for the ref-filter guard in agentgitsmart.hook._handle_ref.
 
 Locks the loop-prevention guarantee: cache refs written under cfg.ref_prefix
 must never trigger re-generation, and only refs/heads/* branch tips cause
@@ -6,7 +6,7 @@ cache generation at all.
 
 Key design note
 ---------------
-The default ref_prefix is "refs/agent-cache", which is already outside
+The default ref_prefix is "refs/agent-git-smart", which is already outside
 refs/heads/*, so the *existing* allowlist filter would silently catch it.
 Tests 1 and 5 therefore use a custom ref_prefix of "refs/heads/cache" —
 a prefix that IS inside refs/heads/* and would slip past the old filter
@@ -22,8 +22,8 @@ import io
 
 import pygit2
 
-from agentcache.config import AgentCacheConfig
-from agentcache.hook import ZERO_OID, _handle_ref, main
+from agentgitsmart.config import AgentGitSmartConfig
+from agentgitsmart.hook import ZERO_OID, _handle_ref, main
 
 
 # ---------------------------------------------------------------------------
@@ -37,9 +37,9 @@ def _cache_ref_count(repo: pygit2.Repository, ref_prefix: str) -> int:
     return sum(1 for r in repo.references if r.startswith(prefix))
 
 
-def _cfg_with_prefix(repo: pygit2.Repository, prefix: str) -> AgentCacheConfig:
+def _cfg_with_prefix(repo: pygit2.Repository, prefix: str) -> AgentGitSmartConfig:
     """Build a cfg pointing at *repo* with a custom ref_prefix."""
-    return AgentCacheConfig(repo_dir=repo.path, ref_prefix=prefix)
+    return AgentGitSmartConfig(repo_dir=repo.path, ref_prefix=prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +134,8 @@ def test_main_mixed_stdin_generates_exactly_one_cache(repo, monkeypatch):
     custom_prefix = "refs/heads/cache"
 
     # Point main() at the test repo and the custom prefix.
-    monkeypatch.setenv("AGENTCACHE_REPO_DIR", r.path)
-    monkeypatch.setenv("AGENTCACHE_REF_PREFIX", custom_prefix)
+    monkeypatch.setenv("AGENTGITSMART_REPO_DIR", r.path)
+    monkeypatch.setenv("AGENTGITSMART_REF_PREFIX", custom_prefix)
 
     cache_refname = f"{custom_prefix}/{commit_oid}"
     stdin_text = (

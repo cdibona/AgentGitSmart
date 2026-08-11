@@ -15,14 +15,14 @@ USAGE — against a real repo (run setup_repo.sh first):
 
 The service must be running before a full benchmark:
 
-    AGENTCACHE_REPO_DIR=benchmark/repos/cpython.git \\
-        .venv/bin/python -m agentcache.service &
+    AGENTGITSMART_REPO_DIR=benchmark/repos/cpython.git \\
+        .venv/bin/python -m agentgitsmart.service &
 
 WHAT THIS MEASURES:
 
   naive    — git clone --depth=1  (all files on disk, like actions/checkout@v4)
   blobless — filter=blob:none then sparse checkout of target paths only
-  agentcache — blobless clone + POST /resolve + ONE batched fetch of exact blobs
+  agentgitsmart — blobless clone + POST /resolve + ONE batched fetch of exact blobs
 
 Output is a comparison table printed to stdout and optionally saved as JSON.
 """
@@ -42,9 +42,9 @@ from typing import Any, Dict, List, Optional
 # Make sure the repo root is on the path when running as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from benchmark.approaches import naive, blobless, agentcache as ac
-from agentcache.config import AgentCacheConfig
-from agentcache.hook import generate_for_commit
+from benchmark.approaches import naive, blobless, agentgitsmart as ac
+from agentgitsmart.config import AgentGitSmartConfig
+from agentgitsmart.hook import generate_for_commit
 import pygit2
 
 
@@ -116,13 +116,13 @@ def _create_smoke_repo(dest: str) -> tuple[pygit2.Repository, str]:
 
 
 def _start_service(repo_dir: str, port: int) -> subprocess.Popen:
-    """Start the agentcache Flask service as a child process."""
+    """Start the agentgitsmart Flask service as a child process."""
     env = dict(os.environ)
-    env["AGENTCACHE_REPO_DIR"] = repo_dir
-    env["AGENTCACHE_SERVICE_PORT"] = str(port)
-    env["AGENTCACHE_SERVICE_HOST"] = "127.0.0.1"
+    env["AGENTGITSMART_REPO_DIR"] = repo_dir
+    env["AGENTGITSMART_SERVICE_PORT"] = str(port)
+    env["AGENTGITSMART_SERVICE_HOST"] = "127.0.0.1"
     proc = subprocess.Popen(
-        [sys.executable, "-m", "agentcache.service"],
+        [sys.executable, "-m", "agentgitsmart.service"],
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -208,12 +208,12 @@ def _run_one(
     target_paths: List[str],
     service_url: str,
 ) -> Dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="agentcache-bench-") as work_dir:
+    with tempfile.TemporaryDirectory(prefix="agentgitsmart-bench-") as work_dir:
         if approach_name == "naive":
             return naive.run(repo_url, branch, target_paths, work_dir)
         elif approach_name == "blobless":
             return blobless.run(repo_url, commit, branch, target_paths, work_dir)
-        elif approach_name == "agentcache":
+        elif approach_name == "agentgitsmart":
             return ac.run(repo_url, commit, branch, service_url, target_paths, work_dir)
         else:
             raise ValueError(f"Unknown approach: {approach_name!r}")
@@ -274,12 +274,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--paths", nargs="+", metavar="PATH",
                     help="Files the 'agent' needs (relative to repo root).")
     ap.add_argument("--service", metavar="URL", default="http://127.0.0.1:8765",
-                    help="Running agentcache service URL (default: http://127.0.0.1:8765).")
+                    help="Running agentgitsmart service URL (default: http://127.0.0.1:8765).")
     ap.add_argument("--start-service", action="store_true",
-                    help="Start the agentcache service automatically (uses --repo).")
+                    help="Start the agentgitsmart service automatically (uses --repo).")
     ap.add_argument("--approaches", nargs="+",
-                    choices=["naive", "blobless", "agentcache"],
-                    default=["naive", "blobless", "agentcache"],
+                    choices=["naive", "blobless", "agentgitsmart"],
+                    default=["naive", "blobless", "agentgitsmart"],
                     help="Approaches to benchmark.")
     ap.add_argument("--runs", type=int, default=3,
                     help="Number of timed runs per approach (results are averaged).")
@@ -295,9 +295,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             # Smoke mode: create a tiny repo in a temp dir, generate cache,
             # spin up the service, and run all three approaches.
             # ----------------------------------------------------------------
-            print("=== agentcache smoke benchmark ===")
+            print("=== agentgitsmart smoke benchmark ===")
             print("Creating fixture repo...")
-            smoke_tmp = tempfile.mkdtemp(prefix="agentcache-smoke-")
+            smoke_tmp = tempfile.mkdtemp(prefix="agentgitsmart-smoke-")
             repo_path = os.path.join(smoke_tmp, "smoke.git")
             r, commit = _create_smoke_repo(repo_path)
             r.config["uploadpack.allowFilter"] = "true"
@@ -306,13 +306,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             branch = "master"
             target_paths = ["src/app.py"]
 
-            cfg = AgentCacheConfig(repo_dir=r.path)
-            print(f"Generating agentcache artifacts for {commit[:8]}...")
+            cfg = AgentGitSmartConfig(repo_dir=r.path)
+            print(f"Generating agentgitsmart artifacts for {commit[:8]}...")
             generate_for_commit(r, commit, cfg)
 
             port = 8765
             service_url = f"http://127.0.0.1:{port}"
-            print("Starting agentcache service...")
+            print("Starting agentgitsmart service...")
             service_proc = _start_service(r.path, port)
             if not _wait_for_service(service_url):
                 print("ERROR: service did not start in time", file=sys.stderr)
@@ -334,7 +334,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             target_paths = args.paths
             service_url = args.service
 
-            print("=== agentcache benchmark ===")
+            print("=== agentgitsmart benchmark ===")
             print(f"Repo:   {repo_path}")
             print(f"Branch: {branch}")
             print(f"Paths:  {target_paths}")
@@ -347,7 +347,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
             if args.start_service:
                 port = int(service_url.split(":")[-1]) if ":" in service_url else 8765
-                print(f"Starting agentcache service on port {port}...")
+                print(f"Starting agentgitsmart service on port {port}...")
                 service_proc = _start_service(repo_path, port)
                 if not _wait_for_service(service_url):
                     print("ERROR: service did not start", file=sys.stderr)
@@ -356,16 +356,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 # Verify the service is reachable before we start timing.
                 if not _wait_for_service(service_url, timeout=2):
                     print(
-                        f"WARNING: agentcache service not reachable at {service_url}.\n"
+                        f"WARNING: agentgitsmart service not reachable at {service_url}.\n"
                         "  Start it with:\n"
-                        f"    AGENTCACHE_REPO_DIR={repo_path} "
-                        f".venv/bin/python -m agentcache.service\n"
+                        f"    AGENTGITSMART_REPO_DIR={repo_path} "
+                        f".venv/bin/python -m agentgitsmart.service\n"
                         "  Or pass --start-service to have this script do it.",
                         file=sys.stderr,
                     )
-                    if "agentcache" in args.approaches:
-                        print("  Dropping 'agentcache' approach from benchmark.")
-                        args.approaches = [a for a in args.approaches if a != "agentcache"]
+                    if "agentgitsmart" in args.approaches:
+                        print("  Dropping 'agentgitsmart' approach from benchmark.")
+                        args.approaches = [a for a in args.approaches if a != "agentgitsmart"]
 
             print(f"Benchmarking ({args.runs} run(s) each)...")
 

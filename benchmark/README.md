@@ -1,4 +1,4 @@
-# agentcache Benchmark
+# agentgitsmart Benchmark
 
 Compares three agent cold-start approaches side-by-side.
 Everything runs against a **local** bare git repo — nothing reaches a
@@ -15,7 +15,7 @@ How quickly can it go from **zero** to **content in hand**?
 |----------|--------------|-------------------|
 | **naive** | `git clone --depth=1` — all blobs | Every tracked file |
 | **blobless** | `git clone --filter=blob:none` then `checkout -- <paths>` | Only target files, but one lazy fetch per blob |
-| **agentcache** | blobless clone → POST `/resolve` → ONE batched `git fetch <oids>` | Only target blobs, one round-trip |
+| **agentgitsmart** | blobless clone → POST `/resolve` → ONE batched `git fetch <oids>` | Only target blobs, one round-trip |
 
 The difference is negligible on a tiny repo.  On CPython (~60 k files,
 ~300 MB shallow clone) the contrast is dramatic.
@@ -28,21 +28,21 @@ No setup required.  Spins up an in-process fixture repo, generates the
 cache, starts the service, and benchmarks all three approaches:
 
 ```bash
-cd /path/to/AgentCache
+cd /path/to/AgentGitSmart
 .venv/bin/python -m benchmark.run --smoke
 ```
 
 Expected output:
 
 ```
-=== agentcache smoke benchmark ===
+=== agentgitsmart smoke benchmark ===
 Creating fixture repo...
-Generating agentcache artifacts for a1b2c3d4...
-Starting agentcache service...
+Generating agentgitsmart artifacts for a1b2c3d4...
+Starting agentgitsmart service...
 Benchmarking (3 run(s) each, target: ['src/app.py'])...
   [naive] running 3 time(s)......
   [blobless] running 3 time(s)......
-  [agentcache] running 3 time(s)......
+  [agentgitsmart] running 3 time(s)......
 
 === Results ===
 
@@ -50,7 +50,7 @@ Approach                                    Wall time  Recv bytes  Objects recv 
 -------------------------------------------  ---------  ----------  ------------  ----------------  -------------  ---...
 naive (depth=1 clone)                        0.045s     3.0 KiB     5             12.0 KiB          3              every tracked file materialized...
 blobless (filter=blob:none + sparse checkout) 0.042s    1.0 KiB     4             8.0 KiB           2              1 lazy fetch(es) triggered...
-agentcache (blobless → resolve → targeted)   0.038s     1.0 KiB     1             6.0 KiB           0              one packfile; 1 path(s) → 1 blob(s)...
+agentgitsmart (blobless → resolve → targeted)   0.038s     1.0 KiB     1             6.0 KiB           0              one packfile; 1 path(s) → 1 blob(s)...
 ```
 
 > On a tiny fixture repo the numbers converge — the benchmark is
@@ -83,17 +83,17 @@ bash benchmark/setup_repo.sh \
 This will:
 1. Mirror your local CPython into `benchmark/repos/cpython.git`
 2. Configure `uploadpack.allowFilter` and `allowAnySHA1InWant`
-3. Generate agentcache artifacts for every branch tip
+3. Generate agentgitsmart artifacts for every branch tip
 
 Takes a few seconds on a fast SSD (mirror is local copy).
 
-### Step 3 — start the agentcache service
+### Step 3 — start the agentgitsmart service
 
 In a separate terminal (or background it):
 
 ```bash
-AGENTCACHE_REPO_DIR=benchmark/repos/cpython.git \
-    .venv/bin/python -m agentcache.service
+AGENTGITSMART_REPO_DIR=benchmark/repos/cpython.git \
+    .venv/bin/python -m agentgitsmart.service
 ```
 
 ### Step 4 — run the benchmark
@@ -158,7 +158,7 @@ On CPython, you should expect roughly:
 |----------|-----------|------|-------|
 | naive (depth=1) | 30–60 s | ~400 MB | ~60 k |
 | blobless | 5–10 s | ~20 MB | ~2 |
-| agentcache | 3–6 s | ~15 MB | 0 (read by OID) |
+| agentgitsmart | 3–6 s | ~15 MB | 0 (read by OID) |
 
 *(Times depend heavily on storage speed and CPU.)*
 

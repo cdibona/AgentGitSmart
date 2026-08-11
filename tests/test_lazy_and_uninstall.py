@@ -5,8 +5,8 @@ from __future__ import annotations
 import pygit2
 import pytest
 
-from agentcache.service import create_app
-from agentcache.uninstall import erase, find_cache_refs
+from agentgitsmart.service import create_app
+from agentgitsmart.uninstall import erase, find_cache_refs
 
 
 # ── Lazy generation ──────────────────────────────────────────────────────
@@ -48,10 +48,10 @@ def test_resolve_lazily_generated(client):
 
 def test_lazy_disabled_returns_404(repo):
     """With lazy_generation off, an uncached commit 404s instead of building."""
-    from agentcache.config import AgentCacheConfig
+    from agentgitsmart.config import AgentGitSmartConfig
 
     r, commit = repo
-    cfg = AgentCacheConfig(repo_dir=r.path, lazy_generation=False)
+    cfg = AgentGitSmartConfig(repo_dir=r.path, lazy_generation=False)
     app = create_app(cfg)
     app.config.update(TESTING=True)
     c = app.test_client()
@@ -73,7 +73,7 @@ def test_manifest_handles_gitlink_submodule(repo, cfg):
     """
     import pygit2
 
-    from agentcache.manifest import build_manifest
+    from agentgitsmart.manifest import build_manifest
 
     r, _ = repo
     # Craft a tree containing a gitlink pointing at an arbitrary (absent) commit.
@@ -98,7 +98,7 @@ def test_manifest_handles_gitlink_submodule(repo, cfg):
 
 
 def test_erase_dry_run_changes_nothing(repo, cfg):
-    from agentcache.hook import generate_for_commit
+    from agentgitsmart.hook import generate_for_commit
 
     r, commit = repo
     generate_for_commit(r, commit, cfg)
@@ -112,7 +112,7 @@ def test_erase_dry_run_changes_nothing(repo, cfg):
 
 
 def test_erase_removes_all_cache_refs(repo, cfg):
-    from agentcache.hook import generate_for_commit
+    from agentgitsmart.hook import generate_for_commit
 
     r, commit = repo
     generate_for_commit(r, commit, cfg)
@@ -122,13 +122,13 @@ def test_erase_removes_all_cache_refs(repo, cfg):
     assert summary["dry_run"] is False
     assert summary["cache_ref_count"] == 1
 
-    # Reopen: no agent-cache refs remain.
+    # Reopen: no agent-git-smart refs remain.
     r2 = pygit2.Repository(r.path)
     assert find_cache_refs(r2) == []
 
 
 def test_erase_leaves_normal_history_untouched(repo, cfg):
-    from agentcache.hook import generate_for_commit
+    from agentgitsmart.hook import generate_for_commit
 
     r, commit = repo
     generate_for_commit(r, commit, cfg)

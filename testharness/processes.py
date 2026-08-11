@@ -1,7 +1,7 @@
-"""Manage git daemon and agentcache service subprocesses.
+"""Manage git daemon and agentgitsmart service subprocesses.
 
 Both processes are started during the FastAPI lifespan and terminated
-on shutdown.  The agentcache service is per-repo, so it can be
+on shutdown.  The agentgitsmart service is per-repo, so it can be
 restarted with switch_repo() when the user selects a different repo.
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ async def _wait_http_ready(host: str, port: int, timeout: float = 8.0) -> bool:
 
     A bound TCP port does NOT mean Flask is ready to serve — the very first
     request can race the worker coming up and fail with a connection reset,
-    which previously made the first agentcache pass spuriously look 'cold'.
+    which previously made the first agentgitsmart pass spuriously look 'cold'.
     Any HTTP status (even 404) proves the app is serving.
     """
     deadline = time.monotonic() + timeout
@@ -105,8 +105,8 @@ class GitDaemon:
         return self._proc is not None and self._proc.returncode is None
 
 
-class AgentCacheService:
-    """Wrap agentcache Flask service as an asyncio subprocess.
+class AgentGitSmartService:
+    """Wrap agentgitsmart Flask service as an asyncio subprocess.
 
     The service is bound to a single repo directory.  Call
     switch_repo() to restart it against a different repo.
@@ -125,17 +125,17 @@ class AgentCacheService:
             await self.stop()
 
         env = dict(os.environ)
-        env["AGENTCACHE_REPO_DIR"] = repo_dir
-        env["AGENTCACHE_SERVICE_PORT"] = str(self.port)
-        env["AGENTCACHE_SERVICE_HOST"] = "127.0.0.1"
+        env["AGENTGITSMART_REPO_DIR"] = repo_dir
+        env["AGENTGITSMART_SERVICE_PORT"] = str(self.port)
+        env["AGENTGITSMART_SERVICE_HOST"] = "127.0.0.1"
 
         # Capture the service's stderr to a logfile so build/serve failures are
         # diagnosable (was DEVNULL, which silently hid 500s e.g. for repos with
         # submodules).  Appended so a switch_repo restart keeps prior history.
         log_path = os.environ.get(
-            "AGENTCACHE_SERVICE_LOG",
+            "AGENTGITSMART_SERVICE_LOG",
             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                         "testharness", "data", "agentcache-service.log"),
+                         "testharness", "data", "agentgitsmart-service.log"),
         )
         try:
             os.makedirs(os.path.dirname(log_path), exist_ok=True)
@@ -144,7 +144,7 @@ class AgentCacheService:
             self._log_fh = None
 
         self._proc = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "agentcache.service",
+            sys.executable, "-m", "agentgitsmart.service",
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=(self._log_fh if self._log_fh else asyncio.subprocess.DEVNULL),
@@ -152,12 +152,12 @@ class AgentCacheService:
         ok = await _wait_port("127.0.0.1", self.port, timeout=6.0)
         if ok:
             # Port bound != Flask ready; wait until it actually answers so the
-            # first agentcache pass doesn't spuriously look 'cold'.
+            # first agentgitsmart pass doesn't spuriously look 'cold'.
             await _wait_http_ready("127.0.0.1", self.port, timeout=8.0)
             self._current_repo = repo_dir
-            log.info("agentcache service: port %d (repo: %s)", self.port, repo_dir)
+            log.info("agentgitsmart service: port %d (repo: %s)", self.port, repo_dir)
         else:
-            log.warning("agentcache service: did not bind within timeout")
+            log.warning("agentgitsmart service: did not bind within timeout")
         return ok
 
     async def stop(self) -> None:
@@ -169,7 +169,7 @@ class AgentCacheService:
                 self._proc.kill()
         self._proc = None
         self._current_repo = None
-        log.info("agentcache service: stopped")
+        log.info("agentgitsmart service: stopped")
 
     async def switch_repo(self, repo_dir: str) -> bool:
         """(Re)start the service for repo_dir if different from current."""

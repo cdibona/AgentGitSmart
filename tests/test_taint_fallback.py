@@ -3,7 +3,7 @@
 Covers three behaviours:
   (1) Serve-time version/schema re-check: stale manifest/symbols → regenerate.
   (2) Targeted on-miss taint probe in /resolve: missing path in real tree → rebuild.
-  (3) Agent-side graceful fallback: empty agentcache manifest → blobless ls-tree.
+  (3) Agent-side graceful fallback: empty agentgitsmart manifest → blobless ls-tree.
 
 Run with: .venv/bin/pytest tests/test_taint_fallback.py -v
 """
@@ -15,10 +15,10 @@ import json
 import pygit2
 import pytest
 
-from agentcache import GENERATOR_VERSION
-from agentcache import cache_writer
-from agentcache.hook import generate_for_commit
-from agentcache.service import create_app
+from agentgitsmart import GENERATOR_VERSION
+from agentgitsmart import cache_writer
+from agentgitsmart.hook import generate_for_commit
+from agentgitsmart.service import create_app
 from tests.conftest import make_commit
 
 
@@ -284,39 +284,39 @@ def test_no_thrash_when_fresh(repo, cfg):
 
 
 def test_agent_fallback_on_empty_manifest():
-    """Pure-function helper: empty agentcache manifest → blobless fallback, no crash."""
+    """Pure-function helper: empty agentgitsmart manifest → blobless fallback, no crash."""
     from testharness.real_agent import _apply_empty_manifest_fallback
 
     blobless_files = ["src/main.py", "lib/util.rs", "README.md"]
 
-    # --- Case 1: empty agentcache list → use fallback ---
-    metrics: dict = {"agentcache_detected": True}
+    # --- Case 1: empty agentgitsmart list → use fallback ---
+    metrics: dict = {"agentgitsmart_detected": True}
     result = _apply_empty_manifest_fallback(
-        agentcache_files=[],
+        agentgitsmart_files=[],
         fallback_files=blobless_files,
         metrics=metrics,
     )
     assert result == blobless_files, (
-        "Should return blobless list when agentcache is empty"
+        "Should return blobless list when agentgitsmart is empty"
     )
     assert metrics.get("fallback") == "blobless (empty or tainted manifest)", (
         f"Expected fallback key in metrics, got: {metrics}"
     )
-    assert metrics["agentcache_detected"] is False, (
-        "agentcache_detected must be cleared on fallback"
+    assert metrics["agentgitsmart_detected"] is False, (
+        "agentgitsmart_detected must be cleared on fallback"
     )
 
-    # --- Case 2: non-empty agentcache list → return it unchanged, no fallback ---
-    metrics2: dict = {"agentcache_detected": True}
+    # --- Case 2: non-empty agentgitsmart list → return it unchanged, no fallback ---
+    metrics2: dict = {"agentgitsmart_detected": True}
     result2 = _apply_empty_manifest_fallback(
-        agentcache_files=["src/main.py"],
+        agentgitsmart_files=["src/main.py"],
         fallback_files=blobless_files,
         metrics=metrics2,
     )
     assert result2 == ["src/main.py"], (
-        "Should return agentcache list unchanged when non-empty"
+        "Should return agentgitsmart list unchanged when non-empty"
     )
     assert "fallback" not in metrics2, (
-        f"No fallback key expected for non-empty agentcache: {metrics2}"
+        f"No fallback key expected for non-empty agentgitsmart: {metrics2}"
     )
-    assert metrics2["agentcache_detected"] is True
+    assert metrics2["agentgitsmart_detected"] is True

@@ -181,14 +181,14 @@ def test_run_agent_task_blobless_returns_valid_structure(tmp_path):
     assert result["total_agent_ready_ms"] >= 0.0
 
 
-def test_run_agent_task_agentcache_falls_back_gracefully(tmp_path):
-    """AgentCache should not crash even when service is unreachable."""
+def test_run_agent_task_agentgitsmart_falls_back_gracefully(tmp_path):
+    """AgentGitSmart should not crash even when service is unreachable."""
     workspace = str(tmp_path)
     _make_git_repo(workspace)
 
     # Service on port 19999 is not running — should handle gracefully
     result = run_agent_task(
-        approach="agentcache",
+        approach="agentgitsmart",
         workspace=workspace,
         commit="0" * 40,
         target_paths=["src/app.py"],

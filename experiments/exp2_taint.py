@@ -1,12 +1,12 @@
-"""Experiment 2 — Can a non-agentcache-aware agent taint the cache?
+"""Experiment 2 — Can a non-agentgitsmart-aware agent taint the cache?
 
 Scenario per repo:
-  1. Erase cache, then run an agentcache-aware agent → builds + uses the cache.
+  1. Erase cache, then run an agentgitsmart-aware agent → builds + uses the cache.
      Snapshot the cache state (ref names + their object ids).
   2. Run NON-aware agents (naive, then blobless) against the same repo+commit.
      These clone into their own disposable workspaces and never push, so the
      hypothesis is: they cannot touch the server's cache.
-  3. Snapshot the cache state again, and run the agentcache-aware agent once
+  3. Snapshot the cache state again, and run the agentgitsmart-aware agent once
      more.  Compare:
         - did any cache ref change? (taint check)
         - did the aware agent's run flow change? (still warm, same bytes?)
@@ -29,13 +29,13 @@ from pathlib import Path
 import pygit2
 
 from .harness import ExperimentHarness, fmt_bytes, REF_PREFIX
-from agentcache import uninstall as uninstall_mod
+from agentgitsmart import uninstall as uninstall_mod
 
 RESULTS = Path(__file__).resolve().parent / "results"
 
 
 def _cache_fingerprint(repo_dir: str) -> dict:
-    """Map every agent-cache ref -> the object id it points at."""
+    """Map every agent-git-smart ref -> the object id it points at."""
     r = pygit2.Repository(repo_dir)
     fp = {}
     for name in uninstall_mod.find_cache_refs(r, REF_PREFIX):
@@ -49,19 +49,19 @@ async def run_one(h: ExperimentHarness, repo: str, seed: int, pct: float) -> dic
     print(f"\n=== {repo} ===")
 
     # 1. aware agent builds + uses the cache
-    build = await h.run_agent(repo, "agentcache", iteration=1, seed=seed, pct=pct)
+    build = await h.run_agent(repo, "agentgitsmart", iteration=1, seed=seed, pct=pct)
     fp_before = _cache_fingerprint(repo_dir)
     print(
-        f"  [1] agentcache build: built={build.cache_built_this_run} "
+        f"  [1] agentgitsmart build: built={build.cache_built_this_run} "
         f"net={fmt_bytes(build.bytes_proxy_out)} refs={len(fp_before)}"
     )
 
     # warm baseline BEFORE the non-aware runs
     warm_before = await h.run_agent(
-        repo, "agentcache", iteration=2, seed=seed + 1, pct=pct
+        repo, "agentgitsmart", iteration=2, seed=seed + 1, pct=pct
     )
     print(
-        f"  [2] agentcache warm (before): net={fmt_bytes(warm_before.bytes_proxy_out)} "
+        f"  [2] agentgitsmart warm (before): net={fmt_bytes(warm_before.bytes_proxy_out)} "
         f"wall={warm_before.wall_s:.2f}s fetch={warm_before.phase_fetch_ms:.0f}ms"
     )
 
@@ -79,7 +79,7 @@ async def run_one(h: ExperimentHarness, repo: str, seed: int, pct: float) -> dic
     # 4. cache state after non-aware runs + aware agent again
     fp_after = _cache_fingerprint(repo_dir)
     warm_after = await h.run_agent(
-        repo, "agentcache", iteration=5, seed=seed + 1, pct=pct
+        repo, "agentgitsmart", iteration=5, seed=seed + 1, pct=pct
     )
 
     tainted = fp_before != fp_after
@@ -88,7 +88,7 @@ async def run_one(h: ExperimentHarness, repo: str, seed: int, pct: float) -> dic
         f"  [4] cache tainted? {tainted}  (refs before={len(fp_before)} after={len(fp_after)})"
     )
     print(
-        f"      agentcache warm (after):  net={fmt_bytes(warm_after.bytes_proxy_out)} "
+        f"      agentgitsmart warm (after):  net={fmt_bytes(warm_after.bytes_proxy_out)} "
         f"wall={warm_after.wall_s:.2f}s fetch={warm_after.phase_fetch_ms:.0f}ms "
         f"rebuilt={flow_changed}"
     )

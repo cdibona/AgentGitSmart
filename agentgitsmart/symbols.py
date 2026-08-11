@@ -327,7 +327,7 @@ def build_symbol_index(
     available = ctags_available(ctags_bin)
 
     if available:
-        with tempfile.TemporaryDirectory(prefix="agentcache-ctags-") as work:
+        with tempfile.TemporaryDirectory(prefix="agentgitsmart-ctags-") as work:
             _extract_paths(repo, source, work, paths=None)
             raw = _run_ctags(work, ctags_bin=ctags_bin, extra_args=extra_args)
 
@@ -396,7 +396,7 @@ def build_symbol_index_delta(
     # Re-index changed/added files (skip if empty — don't spawn ctags on nothing).
     new: Dict[str, List[Dict[str, Any]]] = {}
     if diff.reindex:
-        with tempfile.TemporaryDirectory(prefix="agentcache-delta-") as work:
+        with tempfile.TemporaryDirectory(prefix="agentgitsmart-delta-") as work:
             _extract_paths(repo, source, work, sorted(diff.reindex))
             new = _run_ctags(work, ctags_bin=ctags_bin, extra_args=extra_args)
 

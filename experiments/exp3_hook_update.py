@@ -1,14 +1,14 @@
-"""Experiment 3 — A human (non-agentcache-aware) push updates the cache.
+"""Experiment 3 — A human (non-agentgitsmart-aware) push updates the cache.
 
-The agentcache cache is keyed by commit OID, so when a human pushes a NEW
+The agentgitsmart cache is keyed by commit OID, so when a human pushes a NEW
 commit the cache for the new HEAD must be (re)built.  The mechanism for that
 is the server-side ``post-receive`` hook: it fires on every push, sees the new
-branch tip, and writes ``refs/agent-cache/<new-oid>`` automatically — no agent
-involvement, no agentcache-awareness on the human's part.
+branch tip, and writes ``refs/agent-git-smart/<new-oid>`` automatically — no agent
+involvement, no agentgitsmart-awareness on the human's part.
 
 This experiment proves the loop end to end on a throwaway bare repo:
 
-  1. Create a fresh bare repo, install the agentcache post-receive hook.
+  1. Create a fresh bare repo, install the agentgitsmart post-receive hook.
   2. Human clones, edits a file, commits, pushes  → hook fires.
   3. Verify a cache ref for the NEW commit now exists, and its manifest
      reflects the human's change (the edited/added path is present).
@@ -36,18 +36,18 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from agentcache import cache_writer  # noqa: E402
-from agentcache import uninstall as uninstall_mod  # noqa: E402
-from agentcache import symbols as symbols_mod  # noqa: E402
+from agentgitsmart import cache_writer  # noqa: E402
+from agentgitsmart import uninstall as uninstall_mod  # noqa: E402
+from agentgitsmart import symbols as symbols_mod  # noqa: E402
 from experiments import harness as harness_mod  # noqa: E402
 
 RESULTS = Path(__file__).resolve().parent / "results"
-REF_PREFIX = "refs/agent-cache"
+REF_PREFIX = "refs/agent-git-smart"
 HOOK_TEMPLATE = """#!/bin/sh
-# agentcache post-receive shim (installed by exp3)
+# agentgitsmart post-receive shim (installed by exp3)
 export PYTHONPATH="{root}:${{PYTHONPATH:-}}"
-export AGENTCACHE_CTAGS_BIN="{ctags}"
-exec "{python}" -m agentcache.hook
+export AGENTGITSMART_CTAGS_BIN="{ctags}"
+exec "{python}" -m agentgitsmart.hook
 """
 
 

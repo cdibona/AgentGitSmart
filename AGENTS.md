@@ -1,10 +1,10 @@
-# Agent Instructions — AgentCache / agentcache
+# Agent Instructions — AgentGitSmart / agentgitsmart
 
-## This repo is agentcache-enabled (service-less / side-ref mode)
+## This repo is agentgitsmart-enabled (service-less / side-ref mode)
 
 > **If you are an agent about to work on this repo, do NOT clone all of it.**
 > This repository publishes its own agent-knowledge cache on every push to
-> `main` (via `.github/workflows/agentcache.yml`) as a git side ref. There is
+> `main` (via `.github/workflows/agentgitsmart.yml`) as a git side ref. There is
 > no hosted query service — read the cache straight from the ref:
 >
 > ```bash
@@ -13,32 +13,32 @@
 > C=$(git rev-parse HEAD)
 >
 > # fetch the side ref for this commit and read the manifest/symbols
-> git fetch origin "refs/agent-cache/$C:refs/agent-cache/$C"
-> git cat-file -p "refs/agent-cache/$C:manifest.json"   # path -> {oid,size,mode}
-> git cat-file -p "refs/agent-cache/$C:symbols.json"    # symbol -> [{path,line,kind}]
+> git fetch origin "refs/agent-git-smart/$C:refs/agent-git-smart/$C"
+> git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # path -> {oid,size,mode}
+> git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # symbol -> [{path,line,kind}]
 >
 > # fetch ONLY the blobs you'll actually read, then read them by OID
 > git fetch origin <oid> <oid> ...
 > git cat-file blob <oid>
 > ```
 >
-> See the README "🤖 If you've been sent by a human" section and `.agentcache`
+> See the README "🤖 If you've been sent by a human" section and `.agentgitsmart`
 > for the machine-readable discovery file.
 
 ---
 
-> **This file is for AI agents working on the AgentCache codebase.**
+> **This file is for AI agents working on the AgentGitSmart codebase.**
 > If you are an agent working on a *different* repo that happens to use
-> agentcache as its server-side cache, see that repo's own `AGENTS.md`
+> agentgitsmart as its server-side cache, see that repo's own `AGENTS.md`
 > instead — it will tell you how to do an efficient cold start there.
 
 ---
 
 ## What this repository is
 
-**agentcache** is a server-side Git infrastructure tool.  It runs as a
+**agentgitsmart** is a server-side Git infrastructure tool.  It runs as a
 `post-receive` hook that pre-computes per-commit knowledge artifacts and
-stores them as orphan commits under `refs/agent-cache/<commit-oid>`.  A
+stores them as orphan commits under `refs/agent-git-smart/<commit-oid>`.  A
 Flask query service lets agent VMs fetch only the blobs they will
 actually touch, in a single batched `git fetch`, instead of cloning
 everything.
@@ -46,9 +46,9 @@ everything.
 ## Package layout
 
 ```
-agentcache/           Python package (the server-side tool)
+agentgitsmart/           Python package (the server-side tool)
   __init__.py         GENERATOR_VERSION constant — bump on schema changes
-  config.py           AgentCacheConfig frozen dataclass, all AGENTCACHE_* env vars
+  config.py           AgentGitSmartConfig frozen dataclass, all AGENTGITSMART_* env vars
   manifest.py         build_manifest()  — flat path→{oid,size,mode} via Index.read_tree
   symbols.py          build_symbol_index() / build_symbol_index_delta() — universal-ctags JSON;
                        delta re-ctags only changed files, carries forward unchanged symbols
@@ -60,7 +60,7 @@ agentcache/           Python package (the server-side tool)
   service.py          Flask app: /healthz /caches /cache/<c>/manifest /cache/<c>/symbol/<n>
                        /cache/<c>/resolve (POST)
 
-hooks/post-receive    Shell shim: exec python3 -m agentcache.hook
+hooks/post-receive    Shell shim: exec python3 -m agentgitsmart.hook
 
 tests/
   conftest.py         repo + cfg fixtures; FILES dict (TokenRefresher, make_refresher, str_len)
@@ -71,12 +71,12 @@ tests/
   test_bundle_and_coldstart.py  end-to-end: blobless clone → verify blobs absent → targeted fetch
 
 benchmark/            Stand-alone benchmarking scripts (not part of the installed package)
-  approaches/         naive.py / blobless.py / agentcache.py
+  approaches/         naive.py / blobless.py / agentgitsmart.py
   run.py              --smoke mode requires no setup; full mode requires a local repo
   setup_repo.sh       Mirror a local repo into benchmark/repos/, install hook, generate cache
 
 testharness/          Local web-based test harness (FastAPI + Alpine.js + Chart.js)
-  start.sh            One-command startup: git daemon + proxy + agentcache svc + web UI
+  start.sh            One-command startup: git daemon + proxy + agentgitsmart svc + web UI
   app.py              FastAPI routes, lifespan manages all subprocesses
   proxy.py            Transparent TCP byte-counting proxy (port 9419 → 9418)
   runner.py           Orchestrates the three approaches; emits SSE events
@@ -86,7 +86,7 @@ testharness/          Local web-based test harness (FastAPI + Alpine.js + Chart.
 
 On every push `build_symbol_index_delta()` re-ctags **only changed files** and
 carries forward unchanged symbols from the parent cache
-(`refs/agent-cache/<parent-sha>`).  Everything is merged through
+(`refs/agent-git-smart/<parent-sha>`).  Everything is merged through
 `canonicalize_symbols()` — the single deterministic chokepoint — so delta
 output is **byte-identical to a full rebuild**.
 
@@ -96,16 +96,16 @@ When delta is not possible the generation records a `fallback_reason`:
 
 | Reason | Cause |
 |---|---|
-| `delta_disabled` | `AGENTCACHE_DELTA_SYMBOLS=false` |
+| `delta_disabled` | `AGENTGITSMART_DELTA_SYMBOLS=false` |
 | `ctags_unavailable` | ctags binary not found |
 | *(null — root commit)* | No parent; full rebuild, no reason recorded |
-| `merge_commit` | Merge commit and `AGENTCACHE_DELTA_ON_MERGE=false` |
+| `merge_commit` | Merge commit and `AGENTGITSMART_DELTA_ON_MERGE=false` |
 | `parent_uncached` | Parent has no cache entry |
 | `parent_unreadable` | Parent cache exists but cannot be read |
 | `schema_mismatch` | Parent `SYMBOLS_SCHEMA` ≠ current (`2`) |
 | `version_mismatch` | Parent `GENERATOR_VERSION` ≠ current (`0.2.0`) |
 | `parent_ctags_unavailable` | Parent index was built without ctags |
-| `ratio_threshold` | Changed/total files > `AGENTCACHE_DELTA_MAX_RATIO` |
+| `ratio_threshold` | Changed/total files > `AGENTGITSMART_DELTA_MAX_RATIO` |
 
 ### Generation block (meta.json + generate_for_commit() return value)
 
@@ -161,7 +161,7 @@ bash testharness/start.sh
 # → http://127.0.0.1:8080
 ```
 
-The host is configurable via `AGENTCACHE_WEB_HOST` (default `127.0.0.1`); set
+The host is configurable via `AGENTGITSMART_WEB_HOST` (default `127.0.0.1`); set
 it to a tailnet IP to expose the harness over Tailscale.  See the README
 "Serving over a tailnet" section.
 
@@ -180,27 +180,27 @@ Requires repos in `benchmark/repos/`.  See `benchmark/README.md`.
 
 ## Configuration knobs
 
-All env vars have an `AGENTCACHE_` prefix.  Boolean vars accept `1/true/yes/on`
+All env vars have an `AGENTGITSMART_` prefix.  Boolean vars accept `1/true/yes/on`
 (case-insensitive) as `true`.
 
 | Variable | Default | Scope | Effect |
 |---|---|---|---|
-| `AGENTCACHE_REPO_DIR` | `$GIT_DIR` | core | Path to the bare repo; required when not running inside the hook |
-| `AGENTCACHE_REF_PREFIX` | `refs/agent-cache` | core | Namespace for cache side-refs |
-| `AGENTCACHE_CTAGS_BIN` | `ctags` | core | ctags executable; set to the full path if not on `$PATH` |
-| `AGENTCACHE_BUNDLE_DIR` | *(unset)* | core | Directory for blobless bootstrap bundles; leave unset to disable |
-| `AGENTCACHE_BUNDLE_FILTER` | `blob:none` | core | git bundle filter string |
-| `AGENTCACHE_BOT_NAME` | `AgentCache Bot` | core | Author name stamped on orphan cache commits |
-| `AGENTCACHE_BOT_EMAIL` | `agentcache@localhost` | core | Author email stamped on orphan cache commits |
-| `AGENTCACHE_SERVICE_HOST` | `127.0.0.1` | service | Query service bind host |
-| `AGENTCACHE_SERVICE_PORT` | `8765` | service | Query service bind port |
-| `AGENTCACHE_SERVICE_URL` | *(empty)* | service | Public URL embedded in artifacts; leave blank to omit |
-| `AGENTCACHE_LAZY_GENERATION` | `true` | service | Build cache on first HTTP request if the hook did not run |
-| `AGENTCACHE_DELTA_SYMBOLS` | `true` | delta | Enable delta re-indexing |
-| `AGENTCACHE_DELTA_ON_MERGE` | `true` | delta | Allow delta on merge commits (first parent only) |
-| `AGENTCACHE_DELTA_MAX_RATIO` | *(unset)* | delta | Fall back to full when `changed/total > ratio`; unset = no cap |
-| `AGENTCACHE_WEB_HOST` | `127.0.0.1` | **testharness only** | Bind host for the FastAPI test-harness UI |
-| `AGENTCACHE_WEB_PORT` | `8080` | **testharness only** | Bind port for the FastAPI test-harness UI |
+| `AGENTGITSMART_REPO_DIR` | `$GIT_DIR` | core | Path to the bare repo; required when not running inside the hook |
+| `AGENTGITSMART_REF_PREFIX` | `refs/agent-git-smart` | core | Namespace for cache side-refs |
+| `AGENTGITSMART_CTAGS_BIN` | `ctags` | core | ctags executable; set to the full path if not on `$PATH` |
+| `AGENTGITSMART_BUNDLE_DIR` | *(unset)* | core | Directory for blobless bootstrap bundles; leave unset to disable |
+| `AGENTGITSMART_BUNDLE_FILTER` | `blob:none` | core | git bundle filter string |
+| `AGENTGITSMART_BOT_NAME` | `AgentGitSmart Bot` | core | Author name stamped on orphan cache commits |
+| `AGENTGITSMART_BOT_EMAIL` | `agentgitsmart@localhost` | core | Author email stamped on orphan cache commits |
+| `AGENTGITSMART_SERVICE_HOST` | `127.0.0.1` | service | Query service bind host |
+| `AGENTGITSMART_SERVICE_PORT` | `8765` | service | Query service bind port |
+| `AGENTGITSMART_SERVICE_URL` | *(empty)* | service | Public URL embedded in artifacts; leave blank to omit |
+| `AGENTGITSMART_LAZY_GENERATION` | `true` | service | Build cache on first HTTP request if the hook did not run |
+| `AGENTGITSMART_DELTA_SYMBOLS` | `true` | delta | Enable delta re-indexing |
+| `AGENTGITSMART_DELTA_ON_MERGE` | `true` | delta | Allow delta on merge commits (first parent only) |
+| `AGENTGITSMART_DELTA_MAX_RATIO` | *(unset)* | delta | Fall back to full when `changed/total > ratio`; unset = no cap |
+| `AGENTGITSMART_WEB_HOST` | `127.0.0.1` | **testharness only** | Bind host for the FastAPI test-harness UI |
+| `AGENTGITSMART_WEB_PORT` | `8080` | **testharness only** | Bind port for the FastAPI test-harness UI |
 
 ## Coding conventions
 

@@ -5,7 +5,7 @@ fixture, which spins up an in-process bare git repo (no disk state
 survives between tests) and commits the FILES tree to
 ``refs/heads/master``.
 
-The ``cfg`` fixture wraps it in a minimal AgentCacheConfig.
+The ``cfg`` fixture wraps it in a minimal AgentGitSmartConfig.
 
 FILES is also importable as a module-level constant so test modules
 that need to reference file content directly can do:
@@ -26,7 +26,7 @@ from typing import Dict, Optional
 import pygit2
 import pytest
 
-from agentcache.config import AgentCacheConfig
+from agentgitsmart.config import AgentGitSmartConfig
 
 # ---------------------------------------------------------------------------
 # Fixture file tree.
@@ -71,7 +71,7 @@ size_t str_len(const char *s) {
     return strlen(s);
 }
 """,
-    "README.md": "# agentcache fixture repo\n",
+    "README.md": "# agentgitsmart fixture repo\n",
 }
 
 # ---------------------------------------------------------------------------
@@ -141,9 +141,9 @@ def repo(tmp_path):
 
 @pytest.fixture
 def cfg(repo):
-    """Return an :class:`AgentCacheConfig` pointing at the test repo."""
+    """Return an :class:`AgentGitSmartConfig` pointing at the test repo."""
     r, _ = repo
-    return AgentCacheConfig(repo_dir=r.path)
+    return AgentGitSmartConfig(repo_dir=r.path)
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ pointers, huge binary notebooks, thousands of tiny files, non-Python languages).
 
 ## Experiment 1 — Cold vs warm cache (steady-state network per run)
 
-| Repo | lang / note | files | naive | blobless | **agentcache** | vs naive |
+| Repo | lang / note | files | naive | blobless | **agentgitsmart** | vs naive |
 |------|-------------|------:|------:|---------:|---------------:|---------:|
 | anthropic-cookbook | notebooks + images | 574 | 153 MiB | 44 KiB | **16 KiB** | **9,979×** |
 | ohmyzsh | 1000s of tiny shell files | 1,091 | 3 MiB | 61 KiB | **6 KiB** | 570× |
@@ -25,16 +25,16 @@ pointers, huge binary notebooks, thousands of tiny files, non-Python languages).
 | codex | OpenAI agent (Rust/TS) | 5,259 | 10 MiB | 845 KiB | **628 KiB** | 17× |
 | ripgrep | Rust | 222 | 650 KiB | 48 KiB | **38 KiB** | 17× |
 
-**agentcache is the bandwidth winner on all 15 repos** (17×–9,979× less than
+**agentgitsmart is the bandwidth winner on all 15 repos** (17×–9,979× less than
 naive), while also delivering **full history** (blobless is `--depth=1`, no
 history) in a **single round-trip**. The first visit pays a one-time, server-
 side lazy build; every later agent on that commit reuses it.
 
 The extreme case (anthropic-cookbook, 153 MiB → 16 KiB) is a repo full of
 Jupyter notebooks with embedded image/output bytes: naive drags down all of it,
-agentcache fetches only the handful of files the agent actually touches.
+agentgitsmart fetches only the handful of files the agent actually touches.
 
-**Cold (first visit) vs warm (subsequent), agentcache wall time:**
+**Cold (first visit) vs warm (subsequent), agentgitsmart wall time:**
 
 | Repo | COLD | WARM avg | one-time build cost |
 |------|-----:|---------:|--------------------:|
@@ -54,7 +54,7 @@ with no cold/warm distinction.
 **Verdict: PRISTINE on all 5 repos.**
 
 After an aware agent built and used the cache, we ran naive + blobless
-(non-agentcache-aware) agents against the same repo, then returned to the aware
+(non-agentgitsmart-aware) agents against the same repo, then returned to the aware
 agent. The cache-ref fingerprints were byte-identical before and after, and the
 aware agent's warm path was unchanged (no rebuild). The cache is keyed by
 immutable commit OID and lives in side refs that agents only *read*, so
@@ -64,9 +64,9 @@ read-only non-aware agents cannot corrupt it.
 
 **Verdict: PASS.**
 
-On a repo with the agentcache `post-receive` hook installed, a human (no
-agentcache awareness) clones, edits, commits, and pushes. The hook fires
-server-side and writes `refs/agent-cache/<new-oid>` automatically; the new
+On a repo with the agentgitsmart `post-receive` hook installed, a human (no
+agentgitsmart awareness) clones, edits, commits, and pushes. The hook fires
+server-side and writes `refs/agent-git-smart/<new-oid>` automatically; the new
 commit's manifest reflects the human's change. A second push produces a second
 cache ref. Human activity keeps the cache current with zero agent involvement.
 
@@ -83,9 +83,9 @@ cache ref. Human activity keeps the cache current with zero agent involvement.
 3. **Python-only test agent** — the synthetic agent only recognised `.py`
    files and `#` comments, so it errored ("No source files found") on the
    polyglot fleet (Rust `fd`/`ripgrep`, Go `git-lfs`, JS `prettier`). This was
-   a limitation of the *test harness*, not agentcache. Fixed: the agent is now
+   a limitation of the *test harness*, not agentgitsmart. Fixed: the agent is now
    language-aware (`.rs`/`.go`/`.js`/`.c`/`.lua`/… with `//`, `--`, `#`
-   comment styles), so it exercises agentcache across every project.
+   comment styles), so it exercises agentgitsmart across every project.
 
 ## The fleet (15 repos, chosen to be "weird")
 

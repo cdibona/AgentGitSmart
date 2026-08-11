@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentcache import cache_writer
+from agentgitsmart import cache_writer
 
 
 def test_write_creates_orphan_commit_under_side_ref(repo):
@@ -13,7 +13,7 @@ def test_write_creates_orphan_commit_under_side_ref(repo):
         r, commit, {"manifest.json": b'{"k":1}', "meta.json": b"{}"}
     )
     ref = res["cache_ref"]
-    assert ref == f"refs/agent-cache/{commit}"
+    assert ref == f"refs/agent-git-smart/{commit}"
     assert ref in r.references
     # Orphan: the cache commit has no parents and is not on any branch history.
     cache_commit = r[res["cache_commit"]]

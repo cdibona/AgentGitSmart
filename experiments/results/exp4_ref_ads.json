@@ -1,0 +1,188 @@
+{
+  "experiment": "ref_advertisement",
+  "generated_at": "2026-07-13T09:52:15",
+  "pct": 10.0,
+  "repos": [
+    "bat",
+    "ripgrep"
+  ],
+  "ref_densities": [
+    0,
+    5000
+  ],
+  "protocols": [
+    2,
+    0
+  ],
+  "cells": [
+    {
+      "protocol": 2,
+      "blobless": {
+        "bytes_out": 163014,
+        "roundtrips": 20,
+        "files_selected": 20,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 165936,
+        "roundtrips": 1,
+        "files_selected": 20,
+        "error": null
+      },
+      "batch_saves_bytes": -2922,
+      "batch_saves_pct": -1.8,
+      "batch_saves_roundtrips": 19,
+      "repo": "bat",
+      "sim_refs_injected": 0,
+      "total_refs": 2254
+    },
+    {
+      "protocol": 0,
+      "blobless": {
+        "bytes_out": 3240891,
+        "roundtrips": 20,
+        "files_selected": 20,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 3537375,
+        "roundtrips": 1,
+        "files_selected": 20,
+        "error": null
+      },
+      "batch_saves_bytes": -296484,
+      "batch_saves_pct": -9.1,
+      "batch_saves_roundtrips": 19,
+      "repo": "bat",
+      "sim_refs_injected": 0,
+      "total_refs": 2254
+    },
+    {
+      "protocol": 2,
+      "blobless": {
+        "bytes_out": 163014,
+        "roundtrips": 20,
+        "files_selected": 20,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 165936,
+        "roundtrips": 1,
+        "files_selected": 20,
+        "error": null
+      },
+      "batch_saves_bytes": -2922,
+      "batch_saves_pct": -1.8,
+      "batch_saves_roundtrips": 19,
+      "repo": "bat",
+      "sim_refs_injected": 5000,
+      "total_refs": 7254
+    },
+    {
+      "protocol": 0,
+      "blobless": {
+        "bytes_out": 9727581,
+        "roundtrips": 20,
+        "files_selected": 20,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 10641845,
+        "roundtrips": 1,
+        "files_selected": 20,
+        "error": null
+      },
+      "batch_saves_bytes": -914264,
+      "batch_saves_pct": -9.4,
+      "batch_saves_roundtrips": 19,
+      "repo": "bat",
+      "sim_refs_injected": 5000,
+      "total_refs": 7254
+    },
+    {
+      "protocol": 2,
+      "blobless": {
+        "bytes_out": 69363,
+        "roundtrips": 12,
+        "files_selected": 12,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 69685,
+        "roundtrips": 1,
+        "files_selected": 12,
+        "error": null
+      },
+      "batch_saves_bytes": -322,
+      "batch_saves_pct": -0.5,
+      "batch_saves_roundtrips": 11,
+      "repo": "ripgrep",
+      "sim_refs_injected": 0,
+      "total_refs": 1541
+    },
+    {
+      "protocol": 0,
+      "blobless": {
+        "bytes_out": 1587462,
+        "roundtrips": 12,
+        "files_selected": 12,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 1706980,
+        "roundtrips": 1,
+        "files_selected": 12,
+        "error": null
+      },
+      "batch_saves_bytes": -119518,
+      "batch_saves_pct": -7.5,
+      "batch_saves_roundtrips": 11,
+      "repo": "ripgrep",
+      "sim_refs_injected": 0,
+      "total_refs": 1541
+    },
+    {
+      "protocol": 2,
+      "blobless": {
+        "bytes_out": 69363,
+        "roundtrips": 12,
+        "files_selected": 12,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 69685,
+        "roundtrips": 1,
+        "files_selected": 12,
+        "error": null
+      },
+      "batch_saves_bytes": -322,
+      "batch_saves_pct": -0.5,
+      "batch_saves_roundtrips": 11,
+      "repo": "ripgrep",
+      "sim_refs_injected": 5000,
+      "total_refs": 6540
+    },
+    {
+      "protocol": 0,
+      "blobless": {
+        "bytes_out": 5603032,
+        "roundtrips": 12,
+        "files_selected": 12,
+        "error": null
+      },
+      "blobless_batch": {
+        "bytes_out": 6031445,
+        "roundtrips": 1,
+        "files_selected": 12,
+        "error": null
+      },
+      "batch_saves_bytes": -428413,
+      "batch_saves_pct": -7.6,
+      "batch_saves_roundtrips": 11,
+      "repo": "ripgrep",
+      "sim_refs_injected": 5000,
+      "total_refs": 6540
+    }
+  ],
+  "finding": "Across every protocol/ref-density cell, batching saved <5% of bytes (often 0 or slightly negative) while always cutting round-trips. AgentGitSmartBlobless is a LATENCY optimisation, not a bandwidth one: real git charges lazy and batched fetching the same bytes; injecting refs inflates the CLONE cost, which BOTH arms pay equally."
+}

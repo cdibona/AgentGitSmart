@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from agentcache.hook import generate_for_commit
-from agentcache.service import create_app
+from agentgitsmart.hook import generate_for_commit
+from agentgitsmart.service import create_app
 
 
 @pytest.fixture

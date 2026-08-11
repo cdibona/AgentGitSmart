@@ -1,18 +1,18 @@
-# .agentcache — this repo is agentcache-enabled in SERVICE-LESS (side-ref) mode.
+# .agentgitsmart — this repo is agentgitsmart-enabled in SERVICE-LESS (side-ref) mode.
 #
 # There is no hosted query service for this GitHub repo.  Instead, the
-# .github/workflows/agentcache.yml workflow generates the per-commit cache on
+# .github/workflows/agentgitsmart.yml workflow generates the per-commit cache on
 # every push to main and publishes it as a git side ref:
 #
-#     refs/agent-cache/<commit-oid>
+#     refs/agent-git-smart/<commit-oid>
 #
 # Agents fetch the cache straight from that ref — no service required:
 #
 #     git clone --filter=blob:none --no-checkout <REPO_URL> repo && cd repo
 #     C=$(git rev-parse HEAD)
-#     git fetch origin "refs/agent-cache/$C:refs/agent-cache/$C"
-#     git cat-file -p "refs/agent-cache/$C:manifest.json"   # path -> {oid,size,mode}
-#     git cat-file -p "refs/agent-cache/$C:symbols.json"    # symbol -> [{path,line,kind}]
+#     git fetch origin "refs/agent-git-smart/$C:refs/agent-git-smart/$C"
+#     git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # path -> {oid,size,mode}
+#     git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # symbol -> [{path,line,kind}]
 #     # then fetch only the blobs you need:
 #     git fetch origin <oid1> <oid2> ...   # reachable blobs; lazy promisor also works
 #
@@ -20,6 +20,6 @@
 
 service_url       = ""                       # none — service-less, use side refs
 mode              = "side-ref"
-cache_ref_prefix  = "refs/agent-cache"
+cache_ref_prefix  = "refs/agent-git-smart"
 default_branch    = "main"
 clone_filter      = "blob:none"

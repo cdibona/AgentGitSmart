@@ -37,7 +37,7 @@ def test_approach_result_roundtrip_with_new_fields():
         grep_cpu_pct=30.0,
     )
     r = ApproachResult(
-        approach="agentcache",
+        approach="agentgitsmart",
         elapsed_s=2.5,
         clone_ms=2300.0,
         timeseries=ts,
@@ -48,7 +48,7 @@ def test_approach_result_roundtrip_with_new_fields():
     dumped = r.model_dump()
     restored = ApproachResult(**dumped)
 
-    assert restored.approach == "agentcache"
+    assert restored.approach == "agentgitsmart"
     assert restored.clone_ms == 2300.0
     assert restored.used_docker is True
     assert restored.latency_ms == 50

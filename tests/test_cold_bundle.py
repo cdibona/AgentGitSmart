@@ -22,13 +22,13 @@ from testharness.models import ExperimentConfig
 
 def test_cold_bundle_config_default():
     """ExperimentConfig.cold_bundle defaults to False — backward-compatible."""
-    cfg = ExperimentConfig(repos=["testrepo"], methods=["agentcache"])
+    cfg = ExperimentConfig(repos=["testrepo"], methods=["agentgitsmart"])
     assert cfg.cold_bundle is False
 
 
 def test_cold_bundle_config_explicit_true():
     """ExperimentConfig(cold_bundle=True) stores the value."""
-    cfg = ExperimentConfig(repos=["testrepo"], methods=["agentcache"], cold_bundle=True)
+    cfg = ExperimentConfig(repos=["testrepo"], methods=["agentgitsmart"], cold_bundle=True)
     assert cfg.cold_bundle is True
 
 
@@ -37,7 +37,7 @@ def test_cold_bundle_config_explicit_true():
 # ---------------------------------------------------------------------------
 # The helper is PURE (no I/O) and must cover all nine combinations of
 # method × {cold, warm} × cold_bundle.  Warm passes ALWAYS get the bundle.
-# Cold passes: agentcache+cold_bundle=True gets it; everything else does not.
+# Cold passes: agentgitsmart+cold_bundle=True gets it; everything else does not.
 
 
 @pytest.mark.parametrize(
@@ -48,19 +48,19 @@ def test_cold_bundle_config_explicit_true():
         ("naive", False, True, True),
         ("blobless", False, False, True),
         ("blobless", False, True, True),
-        ("agentcache", False, False, True),
-        ("agentcache", False, True, True),
+        ("agentgitsmart", False, False, True),
+        ("agentgitsmart", False, True, True),
         # --- cold naive / blobless: no bundle regardless of cold_bundle flag ---
-        # (cold_bundle only controls agentcache cold behaviour)
+        # (cold_bundle only controls agentgitsmart cold behaviour)
         ("naive", True, False, False),
         ("naive", True, True, False),
         ("blobless", True, False, False),
         ("blobless", True, True, False),
-        # --- cold agentcache: the key cases ---
+        # --- cold agentgitsmart: the key cases ---
         # Default (cold_bundle=False): honest first-visit, no bundle.
-        ("agentcache", True, False, False),
+        ("agentgitsmart", True, False, False),
         # Production-amortised cold (cold_bundle=True): bundle is allowed.
-        ("agentcache", True, True, True),
+        ("agentgitsmart", True, True, True),
     ],
 )
 def test_should_use_bundle_matrix(
@@ -76,14 +76,14 @@ def test_should_use_bundle_matrix(
 
 def test_should_use_bundle_warm_is_always_true():
     """Sanity: for any method, warm (is_cold=False) always returns True."""
-    for method in ("naive", "blobless", "agentcache"):
+    for method in ("naive", "blobless", "agentgitsmart"):
         for cold_bundle in (False, True):
             assert should_use_bundle(method, is_cold=False, cold_bundle=cold_bundle), (
                 f"Expected True for warm {method} (cold_bundle={cold_bundle})"
             )
 
 
-def test_should_use_bundle_cold_non_agentcache_always_false():
+def test_should_use_bundle_cold_non_agentgitsmart_always_false():
     """Cold naive/blobless never use the bundle, regardless of cold_bundle flag."""
     for method in ("naive", "blobless"):
         for cold_bundle in (False, True):
