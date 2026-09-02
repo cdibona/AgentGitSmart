@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "generator_version": "0.2.0",
+  "source_commit": "f46e8c887d53404bc889126b526e21fa04dcaa8a",
+  "generated_at": "2026-09-02T18:17:45.979259+00:00",
+  "manifest_entries": 104,
+  "symbol_count": 1351,
+  "ctags_available": true,
+  "generation": {
+    "mode": "full",
+    "parent": null,
+    "files_in_tree": 104,
+    "files_changed": 104,
+    "files_reindexed": 104,
+    "files_carried_forward": 0,
+    "content_bytes_materialized": 1305710,
+    "symbol_count": 1351,
+    "ctags_available": true,
+    "fallback_reason": "parent_uncached"
+  }
+}
