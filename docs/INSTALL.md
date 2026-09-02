@@ -40,9 +40,15 @@ AGENTGITSMART_REPO_DIR=/srv/git/myrepo.git python -m agentgitsmart.service
 ```
 
 Endpoints: `/healthz`, `/caches`, `/cache/<commit>/manifest`,
-`/cache/<commit>/symbol/<name>`, `/cache/<commit>/resolve` (POST). With lazy
-generation enabled, the **first** request for a commit builds the cache on
-demand; later requests (and the `post-receive` hook) reuse it.
+`/cache/<commit>/symbol/<name>`, `/cache/<commit>/resolve` (POST),
+`/cache/<commit>/agents.md`, and `/agents.md` (the same document for the
+most-recently cached commit). With lazy generation enabled, the **first**
+request for a commit builds the cache on demand; later requests (and the
+`post-receive` hook) reuse it.
+
+`/cache/<commit>/manifest` returns the stored `manifest.json` verbatim — an
+envelope whose file list is under `.entries[]`, each entry
+`{path, oid, size, mode}`. It is not a flat path-keyed map.
 
 ## This repo dogfoods agentgitsmart
 

@@ -14,15 +14,15 @@
 >
 > # fetch the side ref for this commit and read the manifest/symbols
 > git fetch origin "refs/agent-git-smart/$C:refs/agent-git-smart/$C"
-> git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # path -> {oid,size,mode}
-> git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # symbol -> [{path,line,kind}]
+> git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # .entries[] -> {path,oid,size,mode}
+> git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # .symbols -> {name: [{path,line,kind}]}
 >
 > # fetch ONLY the blobs you'll actually read, then read them by OID
 > git fetch origin <oid> <oid> ...
 > git cat-file blob <oid>
 > ```
 >
-> See the README "🤖 If you've been sent by a human" section and `.agentgitsmart`
+> See the README "If you've been sent here by your human" section and `.agentgitsmart`
 > for the machine-readable discovery file.
 
 ---
@@ -49,7 +49,7 @@ everything.
 agentgitsmart/           Python package (the server-side tool)
   __init__.py         GENERATOR_VERSION constant — bump on schema changes
   config.py           AgentGitSmartConfig frozen dataclass, all AGENTGITSMART_* env vars
-  manifest.py         build_manifest()  — flat path→{oid,size,mode} via Index.read_tree
+  manifest.py         build_manifest()  — {schema,...,entries:[{path,oid,size,mode}]} via Index.read_tree
   symbols.py          build_symbol_index() / build_symbol_index_delta() — universal-ctags JSON;
                        delta re-ctags only changed files, carries forward unchanged symbols
                        (SYMBOLS_SCHEMA=2); degrades gracefully without ctags
@@ -58,7 +58,9 @@ agentgitsmart/           Python package (the server-side tool)
   hook.py             post-receive orchestration; main() is fail-open (never blocks push);
                        generate_for_commit() returns a result dict that includes the generation block
   service.py          Flask app: /healthz /caches /cache/<c>/manifest /cache/<c>/symbol/<n>
-                       /cache/<c>/resolve (POST)
+                       /cache/<c>/resolve (POST) /cache/<c>/agents.md /agents.md
+  generate.py         CLI one-shot generation for a commit (used by the GitHub Action)
+  uninstall.py        Erase all agent-git-smart artifacts from a repo
 
 hooks/post-receive    Shell shim: exec python3 -m agentgitsmart.hook
 
@@ -69,9 +71,13 @@ tests/
   test_cache_writer.py orphan commit, side ref, readback, idempotency
   test_service.py     Flask endpoints, resolve returns correct fetch_oids
   test_bundle_and_coldstart.py  end-to-end: blobless clone → verify blobs absent → targeted fetch
+  (…plus test_delta_symbols, test_lazy_and_uninstall, test_taint_fallback,
+   test_try_agentgitsmart, test_assess_repo, test_experiments, and more —
+   18 files in total)
 
 benchmark/            Stand-alone benchmarking scripts (not part of the installed package)
-  approaches/         naive.py / blobless.py / agentgitsmart.py
+  approaches/         naive.py / blobless.py / blobless_batch.py / agentgitsmart.py
+                       (run.py wires up three; blobless_batch is driven by testharness/)
   run.py              --smoke mode requires no setup; full mode requires a local repo
   setup_repo.sh       Mirror a local repo into benchmark/repos/, install hook, generate cache
 
@@ -98,7 +104,7 @@ When delta is not possible the generation records a `fallback_reason`:
 |---|---|
 | `delta_disabled` | `AGENTGITSMART_DELTA_SYMBOLS=false` |
 | `ctags_unavailable` | ctags binary not found |
-| *(null — root commit)* | No parent; full rebuild, no reason recorded |
+| *(none — root commit)* | No parents; full rebuild, `fallback_reason` stays `null` |
 | `merge_commit` | Merge commit and `AGENTGITSMART_DELTA_ON_MERGE=false` |
 | `parent_uncached` | Parent has no cache entry |
 | `parent_unreadable` | Parent cache exists but cannot be read |
@@ -106,6 +112,10 @@ When delta is not possible the generation records a `fallback_reason`:
 | `version_mismatch` | Parent `GENERATOR_VERSION` ≠ current (`0.2.0`) |
 | `parent_ctags_unavailable` | Parent index was built without ctags |
 | `ratio_threshold` | Changed/total files > `AGENTGITSMART_DELTA_MAX_RATIO` |
+
+Note: `generation.parent` is `null` on **every** full build, not only on root
+commits — a full build has no delta base to record.  Read `fallback_reason` (not
+`parent`) to tell a root commit (`null`) from a fallback.
 
 ### Generation block (meta.json + generate_for_commit() return value)
 
@@ -133,16 +143,19 @@ pip install -e ".[dev]"
 
 ## Running tests
 
-Install `universal-ctags` to enable the full test suite (one test is skipped without it):
+Install `universal-ctags` to enable the full test suite (roughly a dozen
+symbol/delta tests are skipped without it):
 
 ```bash
 sudo apt-get install -y universal-ctags
-pytest -q          # 21 passed with ctags; 20 passed + 1 skipped (ctags absent) without
+pytest -q                          # tests/       — 272 passed (with ctags)
+pytest testharness/tests -q        # harness      — 34 passed, 3 skipped (psutil absent)
 ```
 
-The single skipped test (`test_indexes_known_symbols`) only runs when
-universal-ctags is installed.  All other tests are self-contained and
-create ephemeral bare repos in `tmp_path`.
+The ctags-gated tests are the two in `tests/test_symbols.py` and the
+`_SKIP_NO_CTAGS` group in `tests/test_delta_symbols.py`; the harness skips
+three metrics tests when `psutil` is not installed.  All tests are
+self-contained and create ephemeral bare repos in `tmp_path`.
 
 ## Running the benchmark smoke test
 
@@ -162,8 +175,8 @@ bash testharness/start.sh
 ```
 
 The host is configurable via `AGENTGITSMART_WEB_HOST` (default `127.0.0.1`); set
-it to a tailnet IP to expose the harness over Tailscale.  See the README
-"Serving over a tailnet" section.
+it to a tailnet IP to expose the harness over Tailscale.  See
+[docs/TESTING.md](docs/TESTING.md#serving-the-harness-over-a-tailnet-tailscale).
 
 Requires repos in `benchmark/repos/`.  See `benchmark/README.md`.
 
@@ -199,8 +212,13 @@ All env vars have an `AGENTGITSMART_` prefix.  Boolean vars accept `1/true/yes/o
 | `AGENTGITSMART_DELTA_SYMBOLS` | `true` | delta | Enable delta re-indexing |
 | `AGENTGITSMART_DELTA_ON_MERGE` | `true` | delta | Allow delta on merge commits (first parent only) |
 | `AGENTGITSMART_DELTA_MAX_RATIO` | *(unset)* | delta | Fall back to full when `changed/total > ratio`; unset = no cap |
+| `AGENTGITSMART_REF` | *(output only)* | scripts | Not read as input — `generate.py` *emits* `::AGENTGITSMART_REF::<ref>` for the GitHub Action to capture |
 | `AGENTGITSMART_WEB_HOST` | `127.0.0.1` | **testharness only** | Bind host for the FastAPI test-harness UI |
 | `AGENTGITSMART_WEB_PORT` | `8080` | **testharness only** | Bind port for the FastAPI test-harness UI |
+| `AGENTGITSMART_GIT_PORT` | `9418` | **testharness only** | Upstream `git daemon` port |
+| `AGENTGITSMART_PROXY_PORT` | `9419` | **testharness only** | Byte-counting proxy port |
+| `AGENTGITSMART_SVC_PORT` | `8765` | **testharness only** | Query service port the harness starts |
+| `AGENTGITSMART_SERVICE_LOG` | *(unset)* | **testharness only** | File the harness writes service logs to |
 
 ## Coding conventions
 

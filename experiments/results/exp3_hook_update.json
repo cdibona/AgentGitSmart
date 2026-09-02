@@ -1,16 +1,16 @@
 {
   "experiment": "hook_update",
-  "generated_at": "2026-08-11T09:48:00",
+  "generated_at": "2026-09-02T11:25:44",
   "branch": "main",
-  "hook_path": "/tmp/exp3-1ko3hlb_/repo.git/hooks/post-receive",
+  "hook_path": "/tmp/exp3-_xob136q/repo.git/hooks/post-receive",
   "verdict": "PASS",
   "steps": [
     {
       "step": "first_push",
-      "new_oid": "8abfb794169772b4bf568330b2d61b270c4df9fc",
+      "new_oid": "bc1b4e74b8d8403617c32b7f62f43f5a701bf2d5",
       "cache_built": true,
       "edited_path_in_manifest": true,
-      "hook_stderr": "remote: agentgitsmart: refs/heads/main -> refs/agent-git-smart/8abfb794169772b4bf568330b2d61b270c4df9fc (1 files, 1 symbols, ctags=True, mode=full, reindexed=1)        \nTo /tmp/exp3-1ko3hlb_/repo.git\n * [new branch]      HEAD -> main",
+      "hook_stderr": "remote: agentgitsmart: refs/heads/main -> refs/agent-git-smart/bc1b4e74b8d8403617c32b7f62f43f5a701bf2d5 (1 files, 1 symbols, ctags=True, mode=full, reindexed=1)        \nTo /tmp/exp3-_xob136q/repo.git\n * [new branch]      HEAD -> main",
       "load": {
         "mode": "full",
         "parent": null,
@@ -21,13 +21,13 @@
     },
     {
       "step": "second_push",
-      "new_oid": "fc84e4e8a6da0129804ce915f9362c3c9414eb80",
+      "new_oid": "e128dc388c9e932ee3814e30486d00bedb9a9ef9",
       "cache_built": true,
       "total_cache_refs": 2,
-      "hook_stderr": "remote: agentgitsmart: refs/heads/main -> refs/agent-git-smart/fc84e4e8a6da0129804ce915f9362c3c9414eb80 (2 files, 2 symbols, ctags=True, mode=delta, reindexed=1)        \nTo /tmp/exp3-1ko3hlb_/repo.git\n   8abfb79..fc84e4e  HEAD -> main",
+      "hook_stderr": "remote: agentgitsmart: refs/heads/main -> refs/agent-git-smart/e128dc388c9e932ee3814e30486d00bedb9a9ef9 (2 files, 2 symbols, ctags=True, mode=delta, reindexed=1)        \nTo /tmp/exp3-_xob136q/repo.git\n   bc1b4e7..e128dc3  HEAD -> main",
       "load": {
         "mode": "delta",
-        "parent": "8abfb794169772b4bf568330b2d61b270c4df9fc",
+        "parent": "bc1b4e74b8d8403617c32b7f62f43f5a701bf2d5",
         "files_reindexed": 1,
         "files_carried_forward": 1,
         "content_bytes_materialized": 37

@@ -4,12 +4,17 @@
 runs** (what each run did, per-repo win-vs-naive tables, the per-human-commit
 cache-rebuild load, and the hook-vs-GitHub-Action warm comparison). Regenerate
 with `python scripts/render_experiment_report.py`; raw JSON lives under
-[`results/harness/`](results/harness/).
+[`results/harness/`](results/harness/). Note that the regenerator reads
+`testharness/data/experiments/`, which is gitignored — on a fresh clone it
+prints "No complete experiments found" and leaves the committed `RECENT.md`
+alone. Run the harness first to produce new data.
 
-Three studies that compare the three repo-access methods — **naive**,
-**blobless**, **agentgitsmart** — across the five collected CPython-sized
-projects (`cpython`, `django`, `go`, `git`, `redis`), and probe the
-agentgitsmart cache lifecycle.
+Four studies that compare the repo-access methods — **naive**, **blobless**,
+**blobless+batch**, **agentgitsmart** — across the collected repo fleet
+(15 repos in the committed results: cpython, django, go, git, redis, codex,
+anthropic-sdk-python, anthropic-cookbook, jq, bat, ripgrep, prettier, ohmyzsh,
+git-lfs, fd), and probe the agentgitsmart cache lifecycle. Each study takes
+`--repos` to narrow the fleet.
 
 Each agent run performs a real agentic task: discover all source files,
 select a deterministic 2 %, add `!` to one comment per file, and commit
@@ -18,7 +23,7 @@ locally — measured end-to-end through a byte-counting proxy.
 ## Prerequisites
 
 ```bash
-# The five repos must be mirrored under benchmark/repos/<name>.git
+# The repos must be mirrored under benchmark/repos/<name>.git
 # and blobless bootstrap bundles under benchmark/bundles/<name>.git-<branch>.bundle
 # (both are produced by the setup steps; bundles let agentgitsmart seed history
 #  from a local/CDN file instead of the git server).
@@ -27,7 +32,7 @@ locally — measured end-to-end through a byte-counting proxy.
 ## Experiment 1 — Cold vs warm cache
 
 ```bash
-python -m experiments.exp1_cold_warm                 # all 5 repos, 5 iterations
+python -m experiments.exp1_cold_warm                 # whole fleet, 5 iterations
 python -m experiments.exp1_cold_warm --repos redis --iterations 3
 ```
 
@@ -67,6 +72,20 @@ automatically. Verifies the new commit's cache exists, its manifest
 reflects the human's change, and a second push produces a second cache ref.
 
 → `results/exp3_hook_update.json`
+
+## Experiment 4 — Does batching save bytes, or only round-trips?
+
+```bash
+python -m experiments.exp4_ref_ads
+```
+
+Tests whether N lazy per-file fetches each re-pay a *ref advertisement* (which
+would make batching a bandwidth win) across git protocol **v2 and v0**, with up
+to 5,000 synthetic `refs/pull/*` refs injected. Finding: batching saved **<5% of
+bytes in every cell** while always cutting round-trips — so blobless+batch is a
+**latency** win, not a bandwidth one.
+
+→ `results/exp4_ref_ads.json`
 
 ## How the pieces fit
 

@@ -14,12 +14,17 @@ hook pre-computes per-commit *agent knowledge* and stores it as an **orphan
 commit** under `refs/agent-git-smart/<source-commit-oid>` — out of the main history,
 behind the same access control, cheap to fetch in isolation:
 
-- **`manifest.json`** — flat `path → {oid, size, mode}` for the whole tree. Lets
-  an agent plan which files to touch (and never fetch a 2 GB asset by accident)
-  *without fetching any content*.
-- **`symbols.json`** — `symbol → [{path, line, kind}]` from universal-ctags.
-  Turns "grep the whole repo" (fetch everything) into a lookup that returns a
-  few OIDs.
+- **`manifest.json`** — every path in the tree, as
+  `.entries[] → {path, oid, size, mode}`. Lets an agent plan which files to
+  touch (and never fetch a 2 GB asset by accident) *without fetching any
+  content*.
+- **`symbols.json`** — `.symbols → {name: [{path, line, kind}]}` from
+  universal-ctags. Turns "grep the whole repo" (fetch everything) into a lookup
+  that returns a few OIDs.
+
+Both files wrap their payload in a small envelope (`schema`,
+`generator_version`, `generated_at`, `source_commit`), so read them as
+`.entries[]` and `.symbols`, not as a bare top-level map.
 
 It also (optionally) emits a [**blobless**](docs/BLOBLESS.md) bootstrap bundle
 per branch tip for CDN-cacheable cold starts. A small query service answers
@@ -27,7 +32,7 @@ per branch tip for CDN-cacheable cold starts. A small query service answers
 only what it touches **in one batched fetch** instead of N lazy round-trips.
 
 The payoff, measured end-to-end (see [Try it](docs/TESTING.md)): an agent
-editing 2% of a repo pulls **17×–10,000× less** over the network than a normal
+editing 2% of a repo pulls **16×–9,562× less** over the network than a normal
 `git clone`, while still getting full history.
 
 ---
@@ -113,7 +118,7 @@ who've never heard of agentgitsmart (the hook runs server-side).
 blobs you'll actually read:
 
 ```bash
-# 0. Discover the service. A AgentGitSmart-enabled repo advertises it in one of:
+# 0. Discover the service. An AgentGitSmart-enabled repo advertises it in one of:
 #      .agentgitsmart        →  grep service_url .agentgitsmart
 #      AGENTS.md          →  the cold-start protocol + service URL
 #    SVC = the agentgitsmart service URL,  REPO_URL = the git remote,  COMMIT = HEAD

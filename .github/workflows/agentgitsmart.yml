@@ -80,6 +80,6 @@ jobs:
             echo ""
             grep -E 'manifest|symbols|cache_ref|bundle' gen.out || true
             echo ""
-            echo "Agents can cold-start against this commit — see the **🤖 If you've"
-            echo "been sent by a human** section of the README."
+            echo "Agents can cold-start against this commit — see the **If you've been"
+            echo "sent here by your human** section of the README."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -96,7 +96,7 @@ Base URL: `{service_url}`
 |--------|------|---------| 
 | `GET`  | `/healthz` | Liveness check — `{{"status":"ok"}}` |
 | `GET`  | `/caches` | List commits that have a cache entry |
-| `GET`  | `/cache/<commit>/manifest` | Full flat path→{{oid,size,mode}} for the commit |
+| `GET`  | `/cache/<commit>/manifest` | Whole-tree manifest: `.entries[]` → `{{path,oid,size,mode}}` |
 | `GET`  | `/cache/<commit>/agents.md` | This document, rendered for a specific commit |
 | `GET`  | `/agents.md` | This document for the most-recently cached commit |
 | `GET`  | `/cache/<commit>/symbol/<name>` | All locations of a symbol + their OIDs |

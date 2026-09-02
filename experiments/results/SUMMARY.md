@@ -1,5 +1,9 @@
 # Experiment results
 
+> All figures on this page are recomputed from the committed raw data in this
+> directory (`exp1_cold_warm.json`, `exp2_taint.json`, `exp3_hook_update.json`).
+> Warm = mean of iterations 2-5; bytes are proxy-measured outbound bytes.
+
 Real agentic task (edit 2 % of source files, add `!` to a comment, commit),
 measured end-to-end through a byte-counting proxy across a **15-repo polyglot
 fleet** — chosen to stress unusual git patterns (submodules, empty files, LFS
@@ -7,25 +11,25 @@ pointers, huge binary notebooks, thousands of tiny files, non-Python languages).
 
 ## Experiment 1 — Cold vs warm cache (steady-state network per run)
 
-| Repo | lang / note | files | naive | blobless | **agentgitsmart** | vs naive |
-|------|-------------|------:|------:|---------:|---------------:|---------:|
-| anthropic-cookbook | notebooks + images | 574 | 153 MiB | 44 KiB | **16 KiB** | **9,979×** |
-| ohmyzsh | 1000s of tiny shell files | 1,091 | 3 MiB | 61 KiB | **6 KiB** | 570× |
-| bat | Rust, submodule assets | 1,004 | 2 MiB | 60 KiB | **14 KiB** | 150× |
-| prettier | JS, weird test fixtures | 9,373 | 6 MiB | 549 KiB | **44 KiB** | 150× |
-| jq | C, submodule (oniguruma) | 429 | 1 MiB | 24 KiB | **9 KiB** | 140× |
-| cpython | C / Python | 5,801 | 43 MiB | 586 KiB | **372 KiB** | 118× |
-| go | Go, 15k files | 15,596 | 36 MiB | 1014 KiB | **462 KiB** | 80× |
-| django | Python, empty __init__ | 7,070 | 12 MiB | 515 KiB | **162 KiB** | 76× |
-| git | C, submodule gitlink | 4,765 | 12 MiB | 351 KiB | **197 KiB** | 65× |
-| redis | C, branch `unstable` | 1,818 | 5 MiB | 156 KiB | **95 KiB** | 52× |
-| anthropic-sdk-python | stainless-generated | 1,189 | 1 MiB | 79 KiB | **34 KiB** | 32× |
-| git-lfs | Go, LFS pointers | 650 | 878 KiB | 56 KiB | **27 KiB** | 32× |
-| fd | Rust | 57 | 143 KiB | 10 KiB | **7 KiB** | 20× |
-| codex | OpenAI agent (Rust/TS) | 5,259 | 10 MiB | 845 KiB | **628 KiB** | 17× |
-| ripgrep | Rust | 222 | 650 KiB | 48 KiB | **38 KiB** | 17× |
+| Repo | lang / note | files | naive | blobless | blobless+batch | **agentgitsmart** | vs naive |
+|------|-------------|------:|------:|---------:|---------------:|---------------:|---------:|
+| anthropic-cookbook | notebooks + images | 574 | 153 MiB | 45 KiB | 45 KiB | **16 KiB** | 9,562× |
+| ohmyzsh | 1000s of tiny shell files | 1,091 | 3 MiB | 60 KiB | 61 KiB | **5 KiB** | 645× |
+| prettier | JS, weird test fixtures | 9,373 | 6 MiB | 548 KiB | 549 KiB | **42 KiB** | 154× |
+| bat | Rust, submodule assets | 1,004 | 2 MiB | 60 KiB | 63 KiB | **15 KiB** | 146× |
+| cpython | C / Python | 5,801 | 43 MiB | 562 KiB | 562 KiB | **349 KiB** | 126× |
+| django | Python, empty __init__ | 7,070 | 12 MiB | 491 KiB | 492 KiB | **138 KiB** | 89× |
+| go | Go, 15k files | 15,596 | 36 MiB | 1044 KiB | 1044 KiB | **485 KiB** | 76× |
+| jq | C, submodule (oniguruma) | 429 | 1 MiB | 32 KiB | 32 KiB | **17 KiB** | 76× |
+| git | C, submodule gitlink | 4,765 | 12 MiB | 364 KiB | 365 KiB | **210 KiB** | 60× |
+| redis | C, branch `unstable` | 1,818 | 5 MiB | 183 KiB | 183 KiB | **122 KiB** | 41× |
+| anthropic-sdk-python | stainless-generated | 1,189 | 1 MiB | 77 KiB | 77 KiB | **32 KiB** | 34× |
+| git-lfs | Go, LFS pointers | 650 | 878 KiB | 57 KiB | 58 KiB | **28 KiB** | 31× |
+| ripgrep | Rust | 222 | 650 KiB | 49 KiB | 49 KiB | **39 KiB** | 17× |
+| fd | Rust | 57 | 143 KiB | 11 KiB | 12 KiB | **9 KiB** | 17× |
+| codex | OpenAI agent (Rust/TS) | 5,259 | 10 MiB | 877 KiB | 877 KiB | **659 KiB** | 16× |
 
-**agentgitsmart is the bandwidth winner on all 15 repos** (17×–9,979× less than
+**agentgitsmart is the bandwidth winner on all 15 repos** (16×–9,562× less than
 naive), while also delivering **full history** (blobless is `--depth=1`, no
 history) in a **single round-trip**. The first visit pays a one-time, server-
 side lazy build; every later agent on that commit reuses it.
@@ -38,10 +42,10 @@ agentgitsmart fetches only the handful of files the agent actually touches.
 
 | Repo | COLD | WARM avg | one-time build cost |
 |------|-----:|---------:|--------------------:|
-| cpython | 5.49s | 4.36s | +1.13s |
-| django  | 6.62s | 5.91s | +0.72s |
-| go      | 4.42s | 2.86s | +1.56s |
-| redis   | 0.74s | 0.48s | +0.26s |
+| cpython | 27.53s | 12.44s | +15.09s |
+| django  | 21.76s | 11.19s | +10.56s |
+| go      | 38.72s | 14.47s | +24.24s |
+| redis   |  4.80s |  1.58s |  +3.23s |
 
 The first visit pays a one-time, server-side cache-build cost (lazy
 generation: manifest + ctags symbol index). Every later agent on that commit
@@ -51,7 +55,7 @@ with no cold/warm distinction.
 
 ## Experiment 2 — Can a non-aware agent taint the cache?
 
-**Verdict: PRISTINE on all 5 repos.**
+**Verdict: PRISTINE on all 4 repos** (codex, prettier, git-lfs, jq).
 
 After an aware agent built and used the cache, we ran naive + blobless
 (non-agentgitsmart-aware) agents against the same repo, then returned to the aware

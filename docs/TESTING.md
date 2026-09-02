@@ -160,10 +160,10 @@ Headline result (warm steady state, agent edits 2% of files):
 
 | Repo | naive | blobless | blobless+batch | **agentgitsmart** | vs naive |
 |------|------:|---------:|---------------:|---------------:|---------:|
-| anthropic-cookbook | 153 MiB | 44 KiB | 45 KiB | **16 KiB** | ~9,562× |
-| ohmyzsh | 3 MiB | 61 KiB | 61 KiB | **5 KiB** | 645× |
+| anthropic-cookbook | 153 MiB | 45 KiB | 45 KiB | **16 KiB** | 9,562× |
+| ohmyzsh | 3 MiB | 60 KiB | 61 KiB | **5 KiB** | 645× |
 | prettier | 6 MiB | 548 KiB | 549 KiB | **42 KiB** | 154× |
-| cpython | 43 MiB | 574 KiB | 575 KiB | **349 KiB** | 126× |
+| cpython | 43 MiB | 562 KiB | 562 KiB | **349 KiB** | 126× |
 
 These are **warm** numbers. Note that **blobless+batch tracks blobless almost
 exactly on bytes** — and [`exp4_ref_ads`](../experiments/exp4_ref_ads.py) confirms
@@ -190,7 +190,9 @@ python -m experiments.exp4_ref_ads       # does batching save bytes or just roun
 most recent experiment runs** (what was done, per-repo win-vs-naive tables, the
 per-human-commit cache-rebuild load, and the hook-vs-GitHub-Action warm
 comparison). Regenerate any time with
-`python scripts/render_experiment_report.py`.
+`python scripts/render_experiment_report.py` — it reads the harness's own
+`testharness/data/experiments/` (gitignored), so on a fresh clone it reports
+"No complete experiments found" until you have run the harness yourself.
 
 The numbers above were produced by running the studies **on this installation**
 — a 15-repo polyglot fleet (cpython, django, go, git, redis, openai/codex,
@@ -208,7 +210,7 @@ git-lfs, fd). The raw artifacts are committed in
 - [`exp3_hook_update.json`](../experiments/results/exp3_hook_update.json) — a human
   push keeps the cache current: **PASS**
 
-**agentgitsmart was the bandwidth winner on all 15 repos** (17×–9,979× less than a
+**agentgitsmart was the bandwidth winner on all 15 repos** (16×–9,562× less than a
 naive clone) at warm steady state, while still delivering full history in a
 single round-trip. **But the cold cost is real:** the first (cold) visit to a
 fresh repo pays full network cost — honestly measured — before dropping to the

@@ -11,8 +11,8 @@
 #     git clone --filter=blob:none --no-checkout <REPO_URL> repo && cd repo
 #     C=$(git rev-parse HEAD)
 #     git fetch origin "refs/agent-git-smart/$C:refs/agent-git-smart/$C"
-#     git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # path -> {oid,size,mode}
-#     git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # symbol -> [{path,line,kind}]
+#     git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # .entries[] -> {path,oid,size,mode}
+#     git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # .symbols -> {name: [{path,line,kind}]}
 #     # then fetch only the blobs you need:
 #     git fetch origin <oid1> <oid2> ...   # reachable blobs; lazy promisor also works
 #
