@@ -25,16 +25,19 @@ need it at all, see [Blobless vs AgentGitSmart](BLOBLESS.md). To measure it, see
 On every push, agentgitsmart re-ctags **only the changed files** and carries
 forward unchanged symbols from the parent commit's cache
 (`refs/agent-git-smart/<parent-sha>`), merging everything through
-`canonicalize_symbols()` — a single deterministic chokepoint that guarantees
-**delta output is byte-identical to a full rebuild**
-(preserving the exp2 PRISTINE guarantee).
+`canonicalize_symbols()` — a single deterministic chokepoint that guarantees the
+**delta `symbols` payload is byte-identical to a full rebuild**, in identical key
+order (only the envelope's wall-clock `generated_at` differs), preserving the
+exp2 PRISTINE guarantee.
 
 A full rebuild is used instead — and `fallback_reason` records why — when any
 of the following apply:
 
 - `AGENTGITSMART_DELTA_SYMBOLS=false`
 - ctags is not installed (`ctags_unavailable`)
-- root commit (`parent` is `null`; full rebuild, `fallback_reason` omitted)
+- root commit (no parents; full rebuild, `fallback_reason` stays `null` — note
+  `generation.parent` is `null` on *every* full build, so read `fallback_reason`,
+  not `parent`, to tell a root commit from a fallback)
 - merge commit and `AGENTGITSMART_DELTA_ON_MERGE=false` (`merge_commit`)
 - no parent cache exists (`parent_uncached`) or is unreadable (`parent_unreadable`)
 - the parent was built without ctags (`parent_ctags_unavailable`)
@@ -124,7 +127,7 @@ that, PRs "just work."
 ```
 agentgitsmart/
   config.py        # .env-driven config
-  manifest.py      # flat path->oid manifest (Index.read_tree; skips gitlinks)
+  manifest.py      # whole-tree manifest, .entries[] (Index.read_tree; skips gitlinks)
   symbols.py       # universal-ctags symbol index + delta re-indexing (SYMBOLS_SCHEMA=2; degrades w/o ctags; install: sudo apt-get install -y universal-ctags)
   cache_writer.py  # orphan commit + refs/agent-git-smart/<oid> (read + write)
   bundle.py        # blobless bootstrap bundle (+ verify)

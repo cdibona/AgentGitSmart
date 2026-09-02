@@ -74,9 +74,11 @@ def test_runresult_to_dict_roundtrip():
     assert d["bytes_proxy_out"] == 1234
 
 
-def test_exp3_hook_update_passes():
+def test_exp3_hook_update_passes(tmp_path):
     """The post-receive hook builds a cache on each human push (synthetic repo)."""
-    report = exp3_hook_update.run(branch="main")
+    # out_dir keeps the report in tmp_path; without it the test overwrites the
+    # committed experiments/results/exp3_hook_update.json.
+    report = exp3_hook_update.run(branch="main", out_dir=tmp_path)
     assert report["verdict"] == "PASS"
     steps = {s["step"]: s for s in report["steps"]}
 

@@ -49,6 +49,25 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
+      # Delta symbol indexing carries forward unchanged symbols from the parent
+      # commit's cache, but it can only do that if the parent's side ref is in
+      # THIS checkout.  actions/checkout fetches branches, never refs/agent-git-smart/*,
+      # so without this step every CI run falls back to a full rebuild
+      # (fallback_reason: parent_uncached).
+      - name: Fetch the parent commit's cache ref (enables delta indexing)
+        run: |
+          PARENT=$(git rev-parse --verify --quiet "HEAD^1" || true)
+          if [ -z "$PARENT" ]; then
+            echo "HEAD is a root commit — full rebuild expected."
+            exit 0
+          fi
+          REF="refs/agent-git-smart/$PARENT"
+          if git fetch --no-tags origin "$REF:$REF" 2>/dev/null; then
+            echo "Fetched $REF — delta indexing available."
+          else
+            echo "No cache ref for parent $PARENT — this run will do a full rebuild."
+          fi
+
       - name: Generate the agent-git-smart for HEAD
         id: gen
         run: |
@@ -78,7 +97,7 @@ jobs:
           {
             echo "## agentgitsmart generated for \`${{ github.sha }}\`"
             echo ""
-            grep -E 'manifest|symbols|cache_ref|bundle' gen.out || true
+            grep -E 'manifest|symbols|generation|cache_ref|bundle' gen.out || true
             echo ""
             echo "Agents can cold-start against this commit — see the **If you've been"
             echo "sent here by your human** section of the README."

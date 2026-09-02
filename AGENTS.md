@@ -93,8 +93,9 @@ testharness/          Local web-based test harness (FastAPI + Alpine.js + Chart.
 On every push `build_symbol_index_delta()` re-ctags **only changed files** and
 carries forward unchanged symbols from the parent cache
 (`refs/agent-git-smart/<parent-sha>`).  Everything is merged through
-`canonicalize_symbols()` — the single deterministic chokepoint — so delta
-output is **byte-identical to a full rebuild**.
+`canonicalize_symbols()` — the single deterministic chokepoint — so the delta
+`symbols` payload is **byte-identical to a full rebuild**, in identical key
+order.  (Only the envelope's wall-clock `generated_at` differs between runs.)
 
 ### Fallback ladder
 
@@ -189,7 +190,7 @@ Requires repos in `benchmark/repos/`.  See `benchmark/README.md`.
 | Artifact names must be **flat** (no `/`) | `write_cache()` enforces this; tree depth is always 1 |
 | `build_manifest()` uses `Index.read_tree()` | Do not replace with hand-rolled recursion — Index handles submodule entries correctly |
 | `GENERATOR_VERSION` is embedded in every artifact | Bump it if the artifact schema changes so stale caches can be detected. Current value: `0.2.0`; `SYMBOLS_SCHEMA=2` — bump both on artifact schema changes |
-| Delta mode must produce **byte-identical** symbols.json to a full rebuild | `canonicalize_symbols()` is the single chokepoint — all symbol merges go through it |
+| Delta mode must produce a **byte-identical** `symbols` payload to a full rebuild (envelope `generated_at` aside) | `canonicalize_symbols()` is the single chokepoint — all symbol merges go through it |
 
 ## Configuration knobs
 

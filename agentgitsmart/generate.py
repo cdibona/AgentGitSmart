@@ -82,6 +82,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"symbols       : {meta.get('symbol_count', '?')} "
         f"(ctags={'yes' if meta.get('ctags_available') else 'no'})"
     )
+    gen = meta.get("generation", {})
+    if gen:
+        # Surfacing the mode makes it visible whether delta indexing engaged;
+        # a silent permanent fallback to full is otherwise easy to miss.
+        detail = (
+            f"reindexed={gen.get('files_reindexed', '?')}, "
+            f"carried_forward={gen.get('files_carried_forward', '?')}"
+        )
+        if gen.get("fallback_reason"):
+            detail += f", fallback={gen['fallback_reason']}"
+        print(f"generation    : mode={gen.get('mode', '?')} ({detail})")
 
     if args.bundle_dir:
         os.makedirs(args.bundle_dir, exist_ok=True)

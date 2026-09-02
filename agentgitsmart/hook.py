@@ -388,10 +388,46 @@ def _handle_ref(repo, old_oid, new_oid, refname, cfg) -> Dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
+USAGE = """\
+usage: agentgitsmart-hook   (a git post-receive hook — reads refs on stdin)
+
+Not normally run by hand.  git invokes it with one "<old> <new> <ref>" line
+per updated ref on stdin; install it as a hook instead:
+
+    cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
+    chmod +x /srv/git/myrepo.git/hooks/post-receive
+
+To generate the cache for a single commit from a shell, use
+`agentgitsmart-generate` instead — it takes real arguments.
+
+Environment:
+  AGENTGITSMART_REPO_DIR         Bare repo (required; git sets $GIT_DIR in a hook)
+  AGENTGITSMART_REF_PREFIX       Cache side-ref namespace [default: refs/agent-git-smart]
+  AGENTGITSMART_BUNDLE_DIR       Write blobless bundles here   [default: disabled]
+  AGENTGITSMART_CTAGS_BIN        ctags executable              [default: ctags]
+  AGENTGITSMART_DELTA_SYMBOLS    Delta symbol re-indexing      [default: true]
+  AGENTGITSMART_DELTA_ON_MERGE   Allow delta on merge commits  [default: true]
+  AGENTGITSMART_DELTA_MAX_RATIO  Full rebuild above this changed/total ratio
+
+This hook is fail-open: any error is logged to stderr and it still exits 0,
+so a cache failure can never block a push.  See docs/HOW_IT_WORKS.md."""
+
+
 def main(argv=None, stdin=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+
     stdin = stdin if stdin is not None else sys.stdin
-    cfg = AgentGitSmartConfig.from_env()
-    repo = pygit2.Repository(cfg.repo_dir)
+    try:
+        cfg = AgentGitSmartConfig.from_env()
+        repo = pygit2.Repository(cfg.repo_dir)
+    except Exception as exc:
+        # Fail-open: a hook that cannot even open the repo must still let the
+        # push through, with a readable reason rather than a traceback.
+        print(f"agentgitsmart: FAILED to open repository: {exc}", file=sys.stderr)
+        return 0
 
     any_done = False
     for line in stdin:

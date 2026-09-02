@@ -13,6 +13,7 @@ A small per-commit manifest cache avoids re-parsing on every request.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from functools import lru_cache
 from typing import Any, Dict, List
@@ -263,8 +264,50 @@ def create_app(cfg: AgentGitSmartConfig) -> Flask:
     return app
 
 
-def main() -> int:  # pragma: no cover - thin runner
-    cfg = AgentGitSmartConfig.from_env()
+USAGE = """\
+usage: agentgitsmart-service   (configured entirely through the environment)
+
+Serve the per-commit agent knowledge cache for one bare repository.
+
+    AGENTGITSMART_REPO_DIR=/srv/git/myrepo.git agentgitsmart-service
+
+Environment:
+  AGENTGITSMART_REPO_DIR        Bare repo to serve (required; falls back to $GIT_DIR)
+  AGENTGITSMART_SERVICE_HOST    Bind host                      [default: 127.0.0.1]
+  AGENTGITSMART_SERVICE_PORT    Bind port                      [default: 8765]
+  AGENTGITSMART_SERVICE_URL     Public URL embedded in artifacts    [default: none]
+  AGENTGITSMART_REF_PREFIX      Cache side-ref namespace  [default: refs/agent-git-smart]
+  AGENTGITSMART_LAZY_GENERATION Build the cache on first request    [default: true]
+  AGENTGITSMART_CTAGS_BIN       ctags executable               [default: ctags]
+
+Endpoints:
+  GET  /healthz                        Liveness check
+  GET  /caches                         Commits that have a cache entry
+  GET  /cache/<commit>/manifest        Whole-tree manifest (.entries[])
+  GET  /cache/<commit>/symbol/<name>   Symbol locations + blob OIDs
+  POST /cache/<commit>/resolve         paths -> {fetch_oids, missing, total_bytes}
+  GET  /cache/<commit>/agents.md       Cold-start instructions for that commit
+  GET  /agents.md                      Same, for the most-recently cached commit
+
+See docs/INSTALL.md for the full list of configuration knobs."""
+
+
+def main(argv=None) -> int:  # pragma: no cover - thin runner
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    if argv:
+        print(f"agentgitsmart-service: unexpected argument {argv[0]!r}\n", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 2
+    try:
+        cfg = AgentGitSmartConfig.from_env()
+    except ValueError as exc:
+        # A misconfigured service must say what is missing, not dump a traceback.
+        print(f"agentgitsmart-service: {exc}\n", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 2
     app = create_app(cfg)
     app.run(host=cfg.service_host, port=cfg.service_port)
     return 0

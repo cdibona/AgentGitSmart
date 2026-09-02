@@ -93,7 +93,13 @@ def _human_push(
     return {"new_oid": new_oid, "hook_stderr": push.stderr.strip()}
 
 
-def run(branch: str = "main") -> dict:
+def run(branch: str = "main", out_dir: Path | None = None) -> dict:
+    """Run the hook-update study.
+
+    ``out_dir`` is where the JSON report is written; pass an explicit path
+    (e.g. a pytest ``tmp_path``) to keep a test run from overwriting the
+    committed results file.  ``None`` means the default ``results/`` dir.
+    """
     work = tempfile.mkdtemp(prefix="exp3-")
     bare = os.path.join(work, "repo.git")
     steps = []
@@ -246,8 +252,9 @@ def run(branch: str = "main") -> dict:
     finally:
         subprocess.run(["rm", "-rf", work], check=False)
 
-    RESULTS.mkdir(exist_ok=True)
-    out = RESULTS / "exp3_hook_update.json"
+    dest = RESULTS if out_dir is None else Path(out_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / "exp3_hook_update.json"
     out.write_text(json.dumps(report, indent=2))
     print(f"Wrote {out}")
     return report
