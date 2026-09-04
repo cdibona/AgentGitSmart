@@ -102,15 +102,16 @@ python scripts/assess_repo.py /path/to/your-repo     # or a https://github.com/.
 ## Serving the harness over a tailnet (Tailscale)
 
 To make the harness reachable across your tailnet, set `AGENTGITSMART_WEB_HOST`
-to your tailnet IP and pass it to uvicorn:
+to your tailnet IP and pass it to uvicorn. Substitute your own address for
+`100.x.y.z` below (`tailscale ip -4` prints it):
 
 ```bash
-AGENTGITSMART_WEB_HOST=100.107.70.97 AGENTGITSMART_WEB_PORT=8090 \
-  uvicorn testharness.app:app --host 100.107.70.97 --port 8090
+AGENTGITSMART_WEB_HOST=100.x.y.z AGENTGITSMART_WEB_PORT=8090 \
+  uvicorn testharness.app:app --host 100.x.y.z --port 8090
 ```
 
 `start.sh` picks up both variables automatically, so
-`AGENTGITSMART_WEB_HOST=100.107.70.97 bash testharness/start.sh --port 8090`
+`AGENTGITSMART_WEB_HOST=100.x.y.z bash testharness/start.sh --port 8090`
 works too.
 
 **Persistent service (systemd `--user`):**
@@ -122,10 +123,10 @@ Description=AgentGitSmart Test Harness
 
 [Service]
 WorkingDirectory=/path/to/AgentGitSmart
-Environment=AGENTGITSMART_WEB_HOST=100.107.70.97
+Environment=AGENTGITSMART_WEB_HOST=100.x.y.z
 Environment=AGENTGITSMART_WEB_PORT=8090
 ExecStart=/path/to/AgentGitSmart/.venv/bin/uvicorn \
-    testharness.app:app --host 100.107.70.97 --port 8090
+    testharness.app:app --host 100.x.y.z --port 8090
 Restart=always
 
 [Install]
@@ -141,7 +142,7 @@ sudo loginctl enable-linger $USER
 **Optional HTTPS overlay via Tailscale:**
 
 ```bash
-sudo tailscale serve --bg --https=8443 http://100.107.70.97:8090
+sudo tailscale serve --bg --https=8443 http://100.x.y.z:8090
 ```
 
 ## What the harness measures
