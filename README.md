@@ -8,8 +8,6 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a>
   <a href="https://github.com/cdibona/AgentGitSmart/releases"><img src="https://img.shields.io/github/v/tag/cdibona/AgentGitSmart?label=release&color=green" alt="Latest release" /></a>
   <a href="https://github.com/cdibona/AgentGitSmart/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome" /></a>
-  <a href="https://github.com/anthropics/claude-code"><img src="https://img.shields.io/badge/works%20with-Claude%20Code-6B4FBB?logo=anthropic&logoColor=white" alt="Works with Claude Code" /></a>
-  <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/works%20with-Codex%20CLI-412991?logo=openai&logoColor=white" alt="Works with Codex CLI" /></a>
 </p>
 
 ---
