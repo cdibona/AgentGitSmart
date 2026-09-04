@@ -1,0 +1,88 @@
+name: Bug report
+description: Something behaves differently than documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing. Please search [existing issues](https://github.com/cdibona/AgentGitSmart/issues)
+        first — if it's already there, add your data to that discussion instead.
+
+        **Do not report security vulnerabilities here.** See [SECURITY.md](https://github.com/cdibona/AgentGitSmart/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe, and what did you expect instead?
+      placeholder: |
+        Expected: the post-receive hook writes refs/agent-git-smart/<oid>
+        Actual:   the push succeeds but no cache ref appears
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: >
+        The smallest set of commands that shows the problem. A throwaway bare repo
+        beats a description of your real one.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Actual output
+      description: >
+        Paste the real output, including any traceback. The hook logs to stderr,
+        so `git push` output usually contains the useful line.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How is agentgitsmart running?
+      options:
+        - post-receive hook on a self-hosted server
+        - GitHub Actions workflow (service-less / side-ref mode)
+        - Query service (agentgitsmart-service)
+        - The measured trial (try.sh / try_agentgitsmart.py)
+        - The test harness (testharness/)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Please paste the output of the commands below. The ctags line matters more
+        than you'd think — without it the symbol index is empty and every push
+        falls back to a full rebuild.
+      value: |
+        python3 --version:
+        git --version:
+        ctags --version | head -1:
+        pip show agentgitsmart | grep -i version:
+        OS:
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: generation
+    attributes:
+      label: Generation block (if a cache was built)
+      description: >
+        If a cache ref exists for the commit, this says which path the code took.
+        `git cat-file -p refs/agent-git-smart/<oid>:meta.json` and paste the
+        `generation` object — `mode` and `fallback_reason` are the useful fields.
+      render: json
+    validations:
+      required: false

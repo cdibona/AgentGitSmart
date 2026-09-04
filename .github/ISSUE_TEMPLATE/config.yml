@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/cdibona/AgentGitSmart/blob/main/SECURITY.md
+    about: Do not open a public issue for security problems — follow the policy here.
+  - name: Is agentgitsmart right for my repo?
+    url: https://github.com/cdibona/AgentGitSmart/blob/main/docs/BLOBLESS.md
+    about: Often the honest answer is "blobless is enough". Read this, then measure.
+  - name: How it works
+    url: https://github.com/cdibona/AgentGitSmart/blob/main/docs/HOW_IT_WORKS.md
+    about: Architecture, delta indexing, loop safety, guarantees and known edges.

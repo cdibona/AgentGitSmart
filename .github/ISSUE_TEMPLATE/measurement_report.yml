@@ -1,0 +1,76 @@
+name: Measurement report
+description: Share what the trial measured on a repo — including "blobless is enough"
+labels: ["measurement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The central claim of this project is that agentgitsmart only pays off on *some*
+        repos. Every honest measurement helps map where that line falls — and a
+        **`blobless is enough`** result is just as valuable as a win. Please don't
+        filter these out.
+
+        Run the trial and paste the JSON:
+
+        ```bash
+        curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh \
+          | bash -s -- "$PWD" --json
+        ```
+
+  - type: input
+    id: repo
+    attributes:
+      label: Repo measured
+      description: >
+        A URL if it's public, otherwise just describe its shape — language, rough
+        file count, anything unusual (submodules, LFS, big binary assets, generated
+        code). Never paste anything you can't share.
+      placeholder: https://github.com/owner/name — or "internal monorepo, ~40k files, Java + lots of PNGs"
+    validations:
+      required: true
+
+  - type: textarea
+    id: json
+    attributes:
+      label: Trial output
+      description: The full JSON from the command above.
+      render: json
+    validations:
+      required: true
+
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: Verdict
+      options:
+        - blobless is enough
+        - AgentGitSmartBlobless
+        - agentgitsmart worthwhile
+        - inconclusive — measure to be sure
+        - The trial errored (please file a Bug report instead)
+    validations:
+      required: true
+
+  - type: textarea
+    id: surprise
+    attributes:
+      label: Did anything look wrong?
+      description: >
+        Did the verdict match your intuition about this repo? If the numbers look
+        implausible, or the trial recommended something that seems obviously wrong
+        for your codebase, say so — that's the most useful thing in this form.
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        python3 --version:
+        git --version:
+        ctags --version | head -1:
+        OS:
+      render: shell
+    validations:
+      required: false

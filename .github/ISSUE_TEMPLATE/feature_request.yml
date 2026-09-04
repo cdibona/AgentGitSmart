@@ -1,0 +1,66 @@
+name: Feature request
+description: Suggest an idea, or a use case that isn't covered
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search [existing issues](https://github.com/cdibona/AgentGitSmart/issues)
+        first. If someone has already proposed this, add your use case to that
+        thread — it helps to know how many people want the same thing.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: >
+        Describe the situation, not the solution. What are you doing today, and
+        where does it fall down?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do?
+      description: If you have a specific design in mind, sketch it here.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the project?
+      options:
+        - Cache generation (manifest, symbols, delta indexing)
+        - The post-receive hook
+        - The query service
+        - Bootstrap bundles / cold start
+        - Adoption tooling (try.sh, assess_repo, scaffolding)
+        - The test harness and experiments
+        - Documentation
+        - Something else / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you already tried?
+      description: >
+        Stock git often gets most of the way there. If plain
+        `git clone --filter=blob:none` almost solves this, say what's missing —
+        that's the useful signal.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: footprint
+    attributes:
+      label: Footprint
+      description: >
+        The install footprint is deliberately tiny — pygit2, Flask, python-dotenv.
+        Proposals that avoid new runtime dependencies are much easier to accept.
+      options:
+        - label: This can be built without adding a new runtime dependency (or I've explained below why one is necessary)
+          required: false
