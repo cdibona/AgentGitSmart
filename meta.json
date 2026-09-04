@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "generator_version": "0.2.0",
+  "source_commit": "35bd428ac384ae24985fbe676f17c2c64de86c70",
+  "generated_at": "2026-09-04T02:26:09.230863+00:00",
+  "manifest_entries": 106,
+  "symbol_count": 1361,
+  "ctags_available": true,
+  "generation": {
+    "mode": "delta",
+    "parent": "db5dc032098d64b46d073935693c7206e4312fc2",
+    "files_in_tree": 106,
+    "files_changed": 10,
+    "files_reindexed": 10,
+    "files_carried_forward": 96,
+    "content_bytes_materialized": 119312,
+    "symbol_count": 1361,
+    "ctags_available": true,
+    "fallback_reason": null
+  }
+}
