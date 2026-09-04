@@ -99,20 +99,25 @@ over-promise):
 python scripts/assess_repo.py /path/to/your-repo     # or a https://github.com/... URL
 ```
 
-## Serving the harness over a tailnet (Tailscale)
+## Serving the harness beyond localhost
 
-To make the harness reachable across your tailnet, set `AGENTGITSMART_WEB_HOST`
-to your tailnet IP and pass it to uvicorn. Substitute your own address for
-`100.x.y.z` below (`tailscale ip -4` prints it):
+By default the harness binds to `127.0.0.1`. To reach it from another machine,
+set `AGENTGITSMART_WEB_HOST` to an address that machine can route to and pass
+the same value to uvicorn:
 
 ```bash
-AGENTGITSMART_WEB_HOST=100.x.y.z AGENTGITSMART_WEB_PORT=8090 \
-  uvicorn testharness.app:app --host 100.x.y.z --port 8090
+AGENTGITSMART_WEB_HOST=<your-host-ip> AGENTGITSMART_WEB_PORT=8090 \
+  uvicorn testharness.app:app --host <your-host-ip> --port 8090
 ```
 
-`start.sh` picks up both variables automatically, so
-`AGENTGITSMART_WEB_HOST=100.x.y.z bash testharness/start.sh --port 8090`
+`start.sh` reads both variables, so
+`AGENTGITSMART_WEB_HOST=<your-host-ip> bash testharness/start.sh --port 8090`
 works too.
+
+The harness has **no authentication of any kind**, and it runs git operations
+and spawns containers. Bind it to a private interface — a VPN or overlay-network
+address, or an interface behind your firewall — not to `0.0.0.0` on a public
+host.
 
 **Persistent service (systemd `--user`):**
 
@@ -123,10 +128,10 @@ Description=AgentGitSmart Test Harness
 
 [Service]
 WorkingDirectory=/path/to/AgentGitSmart
-Environment=AGENTGITSMART_WEB_HOST=100.x.y.z
+Environment=AGENTGITSMART_WEB_HOST=<your-host-ip>
 Environment=AGENTGITSMART_WEB_PORT=8090
 ExecStart=/path/to/AgentGitSmart/.venv/bin/uvicorn \
-    testharness.app:app --host 100.x.y.z --port 8090
+    testharness.app:app --host <your-host-ip> --port 8090
 Restart=always
 
 [Install]
@@ -137,12 +142,6 @@ WantedBy=default.target
 systemctl --user enable --now agentgitsmart-harness
 # To survive logout / start at boot without an interactive session:
 sudo loginctl enable-linger $USER
-```
-
-**Optional HTTPS overlay via Tailscale:**
-
-```bash
-sudo tailscale serve --bg --https=8443 http://100.x.y.z:8090
 ```
 
 ## What the harness measures

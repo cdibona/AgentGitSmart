@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Bind host — override via AGENTGITSMART_WEB_HOST for tailnet / non-loopback use.
+# Bind host — override via AGENTGITSMART_WEB_HOST for non-loopback use.
 WEB_HOST="${AGENTGITSMART_WEB_HOST:-127.0.0.1}"
 
 # ---------------------------------------------------------------------------

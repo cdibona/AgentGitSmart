@@ -185,8 +185,8 @@ bash testharness/start.sh
 ```
 
 The host is configurable via `AGENTGITSMART_WEB_HOST` (default `127.0.0.1`); set
-it to a tailnet IP to expose the harness over Tailscale.  See
-[docs/TESTING.md](docs/TESTING.md#serving-the-harness-over-a-tailnet-tailscale).
+it to a routable address to reach the harness from another machine.  See
+[docs/TESTING.md](docs/TESTING.md#serving-the-harness-beyond-localhost).
 
 Requires repos in `benchmark/repos/`.  See `benchmark/README.md`.
 
