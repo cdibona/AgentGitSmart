@@ -50,78 +50,149 @@ stops:
 curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh | bash
 ```
 
-> **⚠️ While this repo is private, the `curl` above returns 404** —
-> `raw.githubusercontent.com` won't serve a private repo without a token. Until
-> it goes public, clone AgentGitSmart once and run the same script directly against
-> your repo (this does exactly what the one-liner would):
->
-> ```bash
-> # one-time: get the tooling (use SSH or a token since the repo is private)
-> git clone https://github.com/cdibona/AgentGitSmart ~/AgentGitSmart
-> # then, from YOUR repo's root, simulate the curl one-liner:
-> bash ~/AgentGitSmart/scripts/try.sh "$PWD"
-> ```
->
-> (`try.sh` self-bootstraps a throwaway venv and measures the repo you point it
-> at — here, your current directory.)
-
-It's honest: on a small or lean repo it tells you **"blobless is enough"** and
-won't push an install on you. When it *does* offer to install, it only scaffolds
-files into your working tree for you to review and commit — it never pushes
-anything on its own. For exactly what it measures, the lighter static predictor
-(`assess_repo.py`), and the manual invocations, see
+It touches nothing: the script clones the tooling into a temp dir, builds a
+throwaway venv, measures, and deletes itself on exit. It's also honest — on a
+small or lean repo it tells you **"blobless is enough"** and won't push an
+install on you. When it *does* offer to install, it only scaffolds files into
+your working tree for you to review and commit; it never runs `git add`,
+`commit`, or `push`, and never touches a remote. For exactly what it measures,
+the lighter static predictor (`assess_repo.py`), and the manual invocations, see
 [Testing & results](docs/TESTING.md#try-it-on-your-repo).
 
-Prefer to let your coding agent drive instead? Tell it (Claude Code, Codex CLI,
-Amplifier, Gemini CLI, Cursor, …):
+#### Or tell Claude, Codex, or opencode to do it
+
+Prefer to let your coding agent drive? Paste this into Claude Code, Codex CLI,
+opencode, Cursor, Gemini CLI, Amplifier, or anything else that can run shell
+commands:
 
 ```
-Read https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/README.md. Follow the instructions there.
+This repo may or may not benefit from AgentGitSmart — server-side Git caching that
+lets coding agents work on a big repo without downloading all of it.
+
+Read https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/README.md and
+follow its "If you've been sent here by your human" section, in order:
+
+1. MEASURE this repo first and show me the verdict. Do not skip this.
+2. If the verdict is "blobless is enough", stop and tell me so — that is a
+   perfectly good outcome and means we should not adopt it.
+3. Only if the verdict says agentgitsmart is worthwhile, set it up: scaffold the
+   adoption files, explain what each one does, and leave them uncommitted for
+   me to review. Do not push anything.
 ```
-*(If the repo already has an `AGENTS.md`, just say: "Read AGENTS.md — this repo
-uses agentgitsmart.")*
+
+The measure-first ordering is the point — it stops an eager agent installing
+infrastructure this repo doesn't need. If the repo is **already** set up, the
+whole prompt collapses to: *"Read AGENTS.md — this repo uses agentgitsmart."*
 
 ### If you've been sent here by your human
 
-You're an AI agent about to work on a repo that uses (or should use) agentgitsmart.
-**Use this instead of a clone — a full or shallow `git clone` defeats the entire
-point.** Two steps: set it up if needed, then work the repo.
+You're an AI agent about to work on a repo that uses — or is considering —
+agentgitsmart. Three steps: **check**, then **measure and adopt** if it isn't set
+up, then **work the repo**.
 
-**Step 1 — Is agentgitsmart already set up here?** Check the repo root:
+**Step 0 — Is it already set up here?** Check the repo root:
 
 ```bash
-grep -s service_url .agentgitsmart    # prints a URL → already set up, skip to Step 2
+cat .agentgitsmart      # exists → already set up; note `mode` and `service_url`
 ```
 
-If it's already set up, go straight to Step 2. **If this is the first time**
-(no `.agentgitsmart`, no `AGENTS.md`), set it up once — you only do this per project:
+If that file exists, skip straight to **Step 2** — and note which mode it
+declares, because the two are read differently:
 
-- **Self-hosted Git server** — install the hook + query service:
-  ```bash
-  cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
-  chmod +x /srv/git/myrepo.git/hooks/post-receive
-  git --git-dir=/srv/git/myrepo.git config uploadpack.allowFilter true
-  git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
-  AGENTGITSMART_REPO_DIR=/srv/git/myrepo.git python -m agentgitsmart.service
-  ```
-- **GitHub** — server hooks don't run; use the CI workflow instead (see
-  [This repo dogfoods agentgitsmart](docs/INSTALL.md#this-repo-dogfoods-agentgitsmart)).
-- **Make it discoverable** so the next agent skips Step 1 — drop `AGENTS.md` and
-  `.agentgitsmart` in the repo root (`cp docs/ADOPTER_AGENTS_TEMPLATE.md AGENTS.md`,
-  then fill in the placeholders; see
-  [Making your repo agent-aware](docs/INSTALL.md#making-your-repo-agent-aware)).
+- `mode = "side-ref"` with an empty `service_url` → **service-less**. Read the
+  cache straight out of a git ref. This is what the GitHub adoption path
+  produces, and what this repo itself uses.
+- a non-empty `service_url` → a **query service** is running. Ask it.
 
-From then on every push keeps the cache current — including pushes from teammates
-who've never heard of agentgitsmart (the hook runs server-side).
+If there's no `.agentgitsmart`, continue to Step 1.
 
-**Step 2 — Work the repo.** Cold-start instead of cloning, fetching only the
-blobs you'll actually read:
+---
+
+**Step 1 — Measure before you adopt. Do not skip this.**
+
+agentgitsmart is not right for every repo, and installing it where it doesn't pay
+is a real cost to the humans who maintain this codebase. Measure first:
 
 ```bash
-# 0. Discover the service. An AgentGitSmart-enabled repo advertises it in one of:
-#      .agentgitsmart        →  grep service_url .agentgitsmart
-#      AGENTS.md          →  the cold-start protocol + service URL
-#    SVC = the agentgitsmart service URL,  REPO_URL = the git remote,  COMMIT = HEAD
+# Measured trial: mirrors the repo, stands up a byte-counting proxy, and
+# reports actual network bytes for each strategy. Temp dirs only; deleted on exit.
+curl -fsSL https://raw.githubusercontent.com/cdibona/AgentGitSmart/main/scripts/try.sh \
+  | bash -s -- "$PWD" --json
+```
+
+Read the `verdict` field and **report it to your human before doing anything
+else**:
+
+| Verdict | What you do |
+|---|---|
+| `blobless is enough` | **Stop. Do not install.** Tell them stock `git clone --filter=blob:none` already gets the win here. This is a good outcome, not a failure. |
+| `AgentGitSmartBlobless` | **Do not install the server.** Recommend blobless + one batched fetch of OIDs read from the local trees — no hook, no service, no side ref. |
+| `agentgitsmart worthwhile` | Proceed to adoption below. |
+
+**Adoption (only on `agentgitsmart worthwhile`).** Re-run without `--json` and
+answer the prompt, and the trial scaffolds the files for you. It *creates*, never
+overwrites, and never touches git or a remote:
+
+| File | Purpose |
+|---|---|
+| `.agentgitsmart` | Machine-readable discovery — how the next agent finds the cache |
+| `AGENTS.md` | The cross-tool convention: Codex CLI, opencode, Cursor, Amplifier |
+| `CLAUDE.md` | What Claude Code reads; imports `AGENTS.md` so there's one source of truth |
+| `.github/workflows/agentgitsmart.yml` | GitHub only — server hooks don't run there, so CI builds the cache on every push to the default branch |
+
+Then tell your human what changed and **leave it uncommitted for them to
+review**. Do not commit or push adoption files on your own.
+
+On a **self-hosted** Git server there is no CI step — install the hook and the
+query service on the server instead:
+
+```bash
+cp hooks/post-receive /srv/git/myrepo.git/hooks/post-receive
+chmod +x /srv/git/myrepo.git/hooks/post-receive
+git --git-dir=/srv/git/myrepo.git config uploadpack.allowFilter true
+git --git-dir=/srv/git/myrepo.git config uploadpack.allowAnySHA1InWant true
+AGENTGITSMART_REPO_DIR=/srv/git/myrepo.git python -m agentgitsmart.service
+```
+
+From then on every push keeps the cache current — including pushes from teammates
+who've never heard of agentgitsmart, because it runs server-side. See
+[docs/INSTALL.md](docs/INSTALL.md) for the full adoption guide.
+
+---
+
+**Step 2 — Work the repo.** Now use the cache. **A full or shallow `git clone`
+defeats the entire point** — cold-start instead, fetching only the blobs you'll
+actually read.
+
+**Service-less (`mode = "side-ref"`) — no service, just git.** This is the
+GitHub path and the one to try first; it needs nothing but `git`:
+
+```bash
+# 1. Blobless clone: full history + every tree, ZERO file content.
+git clone --filter=blob:none --no-checkout "$REPO_URL" repo && cd repo
+C=$(git rev-parse HEAD)
+
+# 2. Fetch this commit's cache ref and read the pre-built index. No content yet.
+git fetch origin "refs/agent-git-smart/$C:refs/agent-git-smart/$C"
+git cat-file -p "refs/agent-git-smart/$C:manifest.json"   # .entries[] -> {path,oid,size,mode}
+git cat-file -p "refs/agent-git-smart/$C:symbols.json"    # .symbols -> {name: [{path,line,kind}]}
+
+# 3. Pick the OIDs you need out of .entries[] (sizes are right there, so you can
+#    see a 2 GB asset coming), then ONE batched fetch — not one per file.
+git fetch origin <oid> <oid> ...
+
+# 4. Read by OID, no checkout needed.
+git cat-file blob <oid>
+```
+
+If a commit has no cache ref yet, nothing breaks: you still have a blobless
+clone, so fall back to reading files normally and carry on.
+
+**With a query service (non-empty `service_url`)** — the service resolves paths
+and symbols for you, and can seed history from a CDN bundle:
+
+```bash
+# 0. SVC = service_url from .agentgitsmart, REPO_URL = the git remote, COMMIT = HEAD
 
 # 1. Blobless clone, seeded from the CDN bundle (NOT a direct clone of the bundle).
 #    You get full history + every tree, but ZERO file content yet.
@@ -147,7 +218,8 @@ fetch a giant asset blind; the symbol index replaces repo-wide grep; and the
 single batched fetch is the biggest lever, because lazy promisor fetches
 otherwise happen **one object at a time**.
 
-Finally, read the repo's `AGENTS.md` so you can explain agentgitsmart to your human.
+Finally, read the repo's `AGENTS.md` (or `CLAUDE.md`, which imports it) so you
+can explain agentgitsmart to your human.
 
 ---
 

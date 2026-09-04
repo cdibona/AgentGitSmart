@@ -24,6 +24,10 @@
 >
 > See the README "If you've been sent here by your human" section and `.agentgitsmart`
 > for the machine-readable discovery file.
+>
+> **`CLAUDE.md` in the repo root imports this file** (Claude Code reads
+> `CLAUDE.md`, not `AGENTS.md`).  Keep instructions here, not there, so every
+> agent reads the same thing.
 
 ---
 
@@ -63,6 +67,11 @@ agentgitsmart/           Python package (the server-side tool)
   uninstall.py        Erase all agent-git-smart artifacts from a repo
 
 hooks/post-receive    Shell shim: exec python3 -m agentgitsmart.hook
+
+AGENTS.md             This file — instructions for every agent tool
+CLAUDE.md             Thin pointer that imports AGENTS.md (Claude Code reads it)
+docs/ADOPTER_AGENTS_TEMPLATE.md   AGENTS.md template scaffolded into adopter repos
+docs/ADOPTER_CLAUDE_TEMPLATE.md   CLAUDE.md template scaffolded into adopter repos
 
 tests/
   conftest.py         repo + cfg fixtures; FILES dict (TokenRefresher, make_refresher, str_len)

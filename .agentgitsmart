@@ -16,7 +16,8 @@
 #     # then fetch only the blobs you need:
 #     git fetch origin <oid1> <oid2> ...   # reachable blobs; lazy promisor also works
 #
-# See AGENTS.md and the README "If you've been sent by a human" section.
+# See AGENTS.md / CLAUDE.md and the README "If you've been sent here by your
+# human" section.
 
 service_url       = ""                       # none — service-less, use side refs
 mode              = "side-ref"

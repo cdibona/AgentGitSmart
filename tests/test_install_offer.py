@@ -43,7 +43,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture()
 def tooling_root(tmp_path: Path) -> Path:
-    """Minimal fake tooling_root with the three scaffold templates."""
+    """Minimal fake tooling_root with the four scaffold templates."""
     root = tmp_path / "tooling_root"
     root.mkdir()
     (root / "docs").mkdir()
@@ -52,6 +52,9 @@ def tooling_root(tmp_path: Path) -> Path:
     )
     (root / "docs" / "ADOPTER_AGENTS_TEMPLATE.md").write_text(
         "# Agent Instructions — `<REPO_NAME>`\n"
+    )
+    (root / "docs" / "ADOPTER_CLAUDE_TEMPLATE.md").write_text(
+        "# CLAUDE.md — `<REPO_NAME>`\n\n@AGENTS.md\n"
     )
     (root / ".agentgitsmart.example").write_text('service_url = "https://example.com"\n')
     return root
@@ -192,6 +195,25 @@ class TestPlanScaffold:
             dests = [item["dest"] for item in plan]
             assert "AGENTS.md" in dests, f"AGENTS.md missing for remote_kind={kind!r}"
 
+    def test_plan_always_includes_claude_md(self, tooling_root, target_dir):
+        """Claude Code reads CLAUDE.md, so it must be scaffolded on every remote."""
+        for kind in ("github", "other", "none"):
+            plan = plan_scaffold(str(tooling_root), str(target_dir), kind)
+            dests = [item["dest"] for item in plan]
+            assert "CLAUDE.md" in dests, f"CLAUDE.md missing for remote_kind={kind!r}"
+
+    def test_claude_source_is_adopter_claude_template(self, tooling_root, target_dir):
+        plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
+        cl = next(i for i in plan if i["dest"] == "CLAUDE.md")
+        assert cl["source"].endswith("docs/ADOPTER_CLAUDE_TEMPLATE.md")
+
+    def test_preexisting_claude_md_marked_skip_exists(self, tooling_root, target_dir):
+        """A repo's own CLAUDE.md must never be overwritten."""
+        (target_dir / "CLAUDE.md").write_text("# my own project instructions\n")
+        plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
+        cl = next(i for i in plan if i["dest"] == "CLAUDE.md")
+        assert cl["action"] == "skip-exists"
+
     def test_plan_always_includes_agentgitsmart_dot(self, tooling_root, target_dir):
         for kind in ("github", "other", "none"):
             plan = plan_scaffold(str(tooling_root), str(target_dir), kind)
@@ -232,11 +254,12 @@ class TestPlanScaffold:
             assert "action" in item
 
     def test_github_plan_order(self, tooling_root, target_dir):
-        """workflow comes first, then AGENTS.md, then .agentgitsmart."""
+        """workflow, then AGENTS.md, then CLAUDE.md, then .agentgitsmart."""
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
         dests = [item["dest"] for item in plan]
         assert dests.index(".github/workflows/agentgitsmart.yml") < dests.index("AGENTS.md")
-        assert dests.index("AGENTS.md") < dests.index(".agentgitsmart")
+        assert dests.index("AGENTS.md") < dests.index("CLAUDE.md")
+        assert dests.index("CLAUDE.md") < dests.index(".agentgitsmart")
 
     def test_workflow_source_is_adopter_workflow_yml(self, tooling_root, target_dir):
         plan = plan_scaffold(str(tooling_root), str(target_dir), "github")
@@ -381,6 +404,9 @@ class TestRunInstallOffer:
         (root / "docs" / "ADOPTER_AGENTS_TEMPLATE.md").write_text(
             "# Agent Instructions\n"
         )
+        (root / "docs" / "ADOPTER_CLAUDE_TEMPLATE.md").write_text(
+            "# CLAUDE.md\n\n@AGENTS.md\n"
+        )
         (root / ".agentgitsmart.example").write_text('service_url = "https://e.g."\n')
         return root
 
@@ -417,6 +443,7 @@ class TestRunInstallOffer:
         )
         assert (target / ".github" / "workflows" / "agentgitsmart.yml").exists()
         assert (target / "AGENTS.md").exists()
+        assert (target / "CLAUDE.md").exists()
         assert (target / ".agentgitsmart").exists()
 
     def test_no_install_flag_returns_installed_false(self, tmp_path):

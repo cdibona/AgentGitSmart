@@ -135,6 +135,8 @@ agentgitsmart/
   service.py       # Flask query API (manifest / symbol / resolve), lazy-gen
   uninstall.py     # erase all agent-git-smart artifacts from a repo
 hooks/post-receive # shell shim -> python -m agentgitsmart.hook
+AGENTS.md          # agent instructions (tool-neutral)
+CLAUDE.md          # thin pointer importing AGENTS.md (Claude Code reads this)
 testharness/       # web UI: byte-counting proxy, git daemon, Docker runner, experiments
 experiments/       # headless cold/warm, taint, and hook-update studies
 tests/             # pytest, incl. end-to-end cold-start integration

@@ -67,14 +67,16 @@ needs straight from the side ref — no running service required.
 
 ## Making your repo agent-aware
 
-Once agentgitsmart is installed on a repo's server, add two small files to that
-repo so agents discover and use it automatically.
+Once agentgitsmart is installed on a repo's server, add three small files to that
+repo so agents discover and use it automatically. `scripts/try_agentgitsmart.py`
+scaffolds all three for you when the measured verdict warrants it (see
+[Testing & results](TESTING.md#try-it-on-your-repo)) — this section is the manual
+equivalent.
 
 ### 1 — Drop an `AGENTS.md` in the repo root
 
-`AGENTS.md` is the convention most AI agents check first (Claude Code, Amplifier,
-GitHub Copilot via `.github/copilot-instructions.md`, Cursor via `.cursorrules`).
-Copy the template and fill in the placeholders:
+`AGENTS.md` is the tool-neutral convention — the one file the widest set of
+agents will read. Copy the template and fill in the placeholders:
 
 ```bash
 cp docs/ADOPTER_AGENTS_TEMPLATE.md /your-repo/AGENTS.md
@@ -84,7 +86,25 @@ cp docs/ADOPTER_AGENTS_TEMPLATE.md /your-repo/AGENTS.md
 See [`ADOPTER_AGENTS_TEMPLATE.md`](ADOPTER_AGENTS_TEMPLATE.md) for the full
 template.
 
-### 2 — Add a `.agentgitsmart` config file (machine-readable discovery)
+### 2 — Add a `CLAUDE.md` that imports it
+
+Claude Code loads `CLAUDE.md`, not `AGENTS.md`, so a repo with only `AGENTS.md`
+is invisible to it. The template is a thin pointer that imports `AGENTS.md`, so
+you still keep exactly one source of truth:
+
+```bash
+cp docs/ADOPTER_CLAUDE_TEMPLATE.md /your-repo/CLAUDE.md
+# Edit: replace <REPO_NAME>, <REPO_URL>
+```
+
+It carries the "don't clone this repo" warning and the short cold-start inline,
+so it still does its job even if the `@AGENTS.md` import is not resolved. If your
+repo already has a `CLAUDE.md`, don't replace it — add `@AGENTS.md` and the
+warning to the top of the existing file instead. A symlink
+(`ln -s AGENTS.md CLAUDE.md`) also works on Linux and macOS, but breaks on
+Windows checkouts that materialize symlinks as text files.
+
+### 3 — Add a `.agentgitsmart` config file (machine-readable discovery)
 
 ```toml
 # .agentgitsmart — machine-readable agentgitsmart discovery for AI agents
@@ -98,15 +118,24 @@ in this repo as a starting point.
 
 ### Agent support matrix
 
-| Agent / tool | Reads `AGENTS.md`? | Notes |
+Each tool loads its own instruction file. `AGENTS.md` holds the content; the
+rest are pointers to it. Conventions here move quickly — check your tool's
+current docs if something isn't being picked up.
+
+| Agent / tool | Loads | How to wire it up |
 |---|---|---|
-| Amplifier / Claude | ✓ auto | Reads at session start |
-| Claude Code | ✓ auto | Also reads `CLAUDE.md` |
-| GitHub Copilot | ✓ via `.github/copilot-instructions.md` | Symlink or duplicate |
-| Cursor | ✓ via `.cursorrules` | Symlink or duplicate |
-| Generic LLM agent | Depends on system prompt | Paste the cold-start block above |
+| Codex CLI, opencode, Amplifier | `AGENTS.md` | Nothing to do — it's the file itself |
+| Claude Code | `CLAUDE.md` | Scaffolded for you; imports `AGENTS.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` | Symlink or duplicate |
+| Cursor | `.cursor/rules/` (or legacy `.cursorrules`) | Symlink or duplicate |
+| Gemini CLI | `GEMINI.md` | Symlink or duplicate |
+| Generic LLM agent | Depends on its system prompt | Paste the cold-start block above |
 
 ```bash
 ln -s AGENTS.md .github/copilot-instructions.md
 ln -s AGENTS.md .cursorrules
+ln -s AGENTS.md GEMINI.md
 ```
+
+On Windows checkouts, or anywhere symlinks aren't reliable, copy the file
+instead — but then remember it is a copy that can drift.

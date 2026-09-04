@@ -70,10 +70,12 @@ This measures your repo with a simulated agent editing 2% of files.
 **It offers to set itself up — only when warranted.** If (and only if) the
 measured verdict is **`agentgitsmart worthwhile`** and you ran it inside a local
 working clone, the trial then asks whether to scaffold the adoption files for
-you. On yes it *creates* (never overwrites) up to three files in your working
+you. On yes it *creates* (never overwrites) up to four files in your working
 tree — `.github/workflows/agentgitsmart.yml` (only for GitHub remotes, from the
 [adopter workflow template](adopter-workflow.yml)), `AGENTS.md`
-(from [`ADOPTER_AGENTS_TEMPLATE.md`](ADOPTER_AGENTS_TEMPLATE.md)), and
+(from [`ADOPTER_AGENTS_TEMPLATE.md`](ADOPTER_AGENTS_TEMPLATE.md)), `CLAUDE.md`
+(from [`ADOPTER_CLAUDE_TEMPLATE.md`](ADOPTER_CLAUDE_TEMPLATE.md), a thin pointer
+that imports `AGENTS.md` so Claude Code sees the same instructions), and
 `.agentgitsmart` — then tells you to review, commit, and push. **It never runs
 `git add`, `commit`, or `push` for you, and never touches a remote.** For any
 other verdict (or a non-worktree target) it does nothing but report. Flags:

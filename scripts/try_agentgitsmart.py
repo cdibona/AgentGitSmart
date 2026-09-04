@@ -599,7 +599,8 @@ def plan_scaffold(
     Items:
         1. ``.github/workflows/agentgitsmart.yml`` -- ONLY when remote_kind == "github".
         2. ``AGENTS.md``  -- always.
-        3. ``.agentgitsmart`` -- always.
+        3. ``CLAUDE.md``  -- always (imports AGENTS.md; Claude Code reads it).
+        4. ``.agentgitsmart`` -- always.
 
     Args:
         tooling_root: Root of the AgentGitSmart tooling tree (has docs/ and
@@ -625,6 +626,9 @@ def plan_scaffold(
         )
 
     items.append(_item("AGENTS.md", "docs/ADOPTER_AGENTS_TEMPLATE.md"))
+    # Claude Code reads CLAUDE.md, not AGENTS.md.  The template is a thin
+    # pointer that imports AGENTS.md, so there is still one source of truth.
+    items.append(_item("CLAUDE.md", "docs/ADOPTER_CLAUDE_TEMPLATE.md"))
     items.append(_item(".agentgitsmart", ".agentgitsmart.example"))
 
     return items
